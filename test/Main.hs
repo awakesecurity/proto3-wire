@@ -14,6 +14,8 @@
   limitations under the License.
 -}
 
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import qualified Data.ByteString.Lazy  as BL
@@ -35,7 +37,8 @@ main :: IO ()
 main = defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [ roundTripTests ]
+tests = testGroup "Tests" [ roundTripTests
+                            , decodeNonsense ]
 
 roundTripTests :: TestTree
 roundTripTests = testGroup "Roundtrip tests"
@@ -113,3 +116,8 @@ roundTrip name encode decode =
             case Decode.parse decode (BL.toStrict bytes) of
                 Left _ -> error "Could not decode encoded message"
                 Right x' -> x === x'
+
+decodeNonsense :: TestTree
+decodeNonsense = HU.testCase "Decoding a nonsensical string fails." $ do
+  let decoded = Decode.parse (one Decode.fixed64 0 `at` fieldNumber 1) "test"
+  decoded HU.@?= Left (Decode.WireTypeError "foo")
