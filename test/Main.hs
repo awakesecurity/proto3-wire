@@ -120,4 +120,4 @@ roundTrip name encode decode =
 decodeNonsense :: TestTree
 decodeNonsense = HU.testCase "Decoding a nonsensical string fails." $ do
   let decoded = Decode.parse (one Decode.fixed64 0 `at` fieldNumber 1) "test"
-  decoded HU.@?= Left (Decode.WireTypeError "foo")
+  decoded HU.@?= Left (Decode.BinaryError "Failed reading: Encountered bytes that aren't valid key/value pairs.\nEmpty call stack\n")
