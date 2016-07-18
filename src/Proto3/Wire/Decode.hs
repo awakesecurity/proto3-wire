@@ -76,6 +76,7 @@ module Proto3.Wire.Decode
 
 import           Control.Applicative
 import           Control.Exception       ( Exception )
+import           Control.Monad           ( unless )
 import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
@@ -88,7 +89,7 @@ import           Data.Monoid             ( (<>) )
 import           Data.Sequence           ( Seq, ViewR(..), fromList, viewr )
 import           Data.Serialize.Get      ( Get, getWord8, getByteString, getInt32le
                                          , getInt64le, getWord32le, getWord64le
-                                         , runGet )
+                                         , runGet , isEmpty )
 import           Data.Serialize.IEEE754  ( getFloat32le, getFloat64le )
 import           Data.Text.Lazy          ( Text, pack )
 import           Data.Text.Lazy.Encoding ( decodeUtf8' )
@@ -100,7 +101,7 @@ import qualified Safe
 
 -- | Get a base128 varint. Handles delimitation by MSB.
 getBase128Varint :: Get Word64
-getBase128Varint = loop 0 0 --untilM peek base128Terminal >>= decodeBase128Varint
+getBase128Varint = loop 0 0
   where
     loop !i !w64 = do
         w8 <- getWord8
@@ -175,6 +176,8 @@ getKeyVal = do
 getFields :: Get (M.Map FieldNumber (Seq ParsedField))
 getFields = do
     keyvals <- many getKeyVal
+    e <- isEmpty
+    unless e $ fail "Encountered bytes that aren't valid key/value pairs."
     let grouped = groupBy ((==) `on` fst) keyvals
     return $
         M.fromList $
