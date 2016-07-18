@@ -19,6 +19,7 @@
 module Main where
 
 import qualified Data.ByteString.Lazy  as BL
+import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
 import           Data.Semigroup        ( (<>) )
 import qualified Data.Text.Lazy        as T
@@ -120,4 +121,4 @@ roundTrip name encode decode =
 decodeNonsense :: TestTree
 decodeNonsense = HU.testCase "Decoding a nonsensical string fails." $ do
   let decoded = Decode.parse (one Decode.fixed64 0 `at` fieldNumber 1) "test"
-  decoded HU.@?= Left (Decode.BinaryError "Failed reading: Encountered bytes that aren't valid key/value pairs.\nEmpty call stack\n")
+  HU.assertBool "decode fails" $ isLeft decoded
