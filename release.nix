@@ -1,6 +1,6 @@
 let config = {
   packageOverrides = pkgs: {
-    haskellPackages = pkgs.haskellPackages.override {
+    haskellPackages = pkgs.haskell.packages.ghc7103.override {
       overrides = haskellPackagesNew: haskellPackagesOld: {
         proto3-wire = haskellPackagesOld.callPackage ./default.nix { };
       };
