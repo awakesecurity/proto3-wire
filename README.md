@@ -1,5 +1,7 @@
 # proto3-wire
 
+[![Build Status](https://travis-ci.org/awakenetworks/proto3-wire.svg?branch=master)](https://travis-ci.org/awakenetworks/proto3-wire)
+
 This library provides a low-level implementation of the [Protocol Buffers version 3 wire format](https://developers.google.com/protocol-buffers/docs/encoding).
 
 This library takes a minimalist approach, supporting only the basic wire format.
