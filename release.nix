@@ -10,4 +10,5 @@ let config = {
 in
 
 { pkgs ? import <nixpkgs> { inherit config; } }:
-pkgs.haskellPackages.proto3-wire
+{ proto3-wire = pkgs.haskellPackages.proto3-wire;
+}
