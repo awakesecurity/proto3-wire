@@ -105,13 +105,11 @@ toLazyByteString (Builder (Sum len, bb)) =
     BB.toLazyByteStringWith strat BL.empty bb
   where
     -- If the supplied length is accurate then we will perform just
-    -- one allocation (unless that length exceeds 'maxFirstChunk').
-    -- An inaccurate length would indicate a bug in
-    -- one of the primitives that produces a 'Builder'.
-    maxFirstChunk = 134217728  -- 128MiB
-    firstChunk = fromIntegral (min maxFirstChunk len)
-    strat = BB.safeStrategy firstChunk BB.defaultChunkSize
+    -- one allocation.  An inaccurate length would indicate a bug
+    -- in one of the primitives that produces a 'Builder'.
+    strat = BB.safeStrategy (fromIntegral len) BB.defaultChunkSize
 {-# NOINLINE toLazyByteString #-}
+  -- NOINLINE to avoid bloating caller; see docs for 'BB.toLazyByteStringWith'.
 
 word8 :: Word8 -> Builder
 word8 w = Builder (Sum 1, BB.word8 w)
@@ -143,6 +141,9 @@ stringUtf8 s = Builder (Sum (len 0 s), BB.stringUtf8 s)
         | c <= 0x07FF -> len (n + 2) t
         | c <= 0xFFFF -> len (n + 3) t
         | otherwise   -> len (n + 4) t
+{-# INLINABLE stringUtf8 #-}
+  -- INLINABLE so that if the input is constant, the
+  -- compiler has the opportunity to precompute its length.
 
 base128Varint :: Word64 -> Builder
 base128Varint i
@@ -292,6 +293,9 @@ text num txt =
     -- but we leave that enhancement for a future time.
     len = Text.Lazy.foldrChunks op 0 txt
     op chnk acc = fromIntegral (B.length (Text.Encoding.encodeUtf8 chnk)) + acc
+{-# INLINABLE text #-}
+  -- INLINABLE so that if the input is constant, the compiler
+  -- has the opportunity to express its length as a CAF.
 
 -- | Encode a collection of bytes in the form of a strict 'B.ByteString'.
 --
