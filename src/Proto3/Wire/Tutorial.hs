@@ -47,7 +47,7 @@
 -- To encode an 'EchoRequest', we use the @Encode.'Encode.text'@ function, and provide
 -- the field number and the text value:
 --
--- > encodeEchoRequest :: EchoRequest -> Builder
+-- > encodeEchoRequest :: EchoRequest -> Encode.Builder
 -- > encodeEchoRequest EchoRequest{..} =
 -- >     Encode.text (fieldNumber 1) echoRequestMessage
 --
@@ -92,11 +92,11 @@
 --
 -- == Encoding
 --
--- To encode messages with multiple fields, note that functions in the "Proto3.Wire.Encode"
--- module return values in the 'Builder' monoid, so we can use `mappend` to
--- combine messages:
+-- To encode messages with multiple fields, note that functions in the
+-- "Proto3.Wire.Encode" module return values in the 'Encode.Builder' monoid,
+-- so we can use `mappend` to combine messages:
 --
--- > encodedEchoResponse :: EchoResponse -> Builder
+-- > encodedEchoResponse :: EchoResponse -> Encode.Builder
 -- > encodedEchoResponse EchoResponse{..} =
 -- >     Encode.text (fieldNumber 1) echoResponseMessage <>
 -- >         Encode.uint64 (fieldNumber 2) echoResponseTimestamp
@@ -136,14 +136,14 @@
 -- Messages can be embedded using `Encode.embedded`.
 --
 -- In protocol buffers version 3, all fields are optional. To omit a value for a
--- field, simply do not append it to the 'Builder'.
+-- field, simply do not append it to the 'Encode.Builder'.
 --
 -- Similarly, repeated fields can be encoded by concatenating several values
 -- with the same 'FieldNumber'.
 --
 -- It can be useful to use 'foldMap' to deal with these cases.
 --
--- > encodeEchoManyRequest :: EchoManyRequest -> Builder
+-- > encodeEchoManyRequest :: EchoManyRequest -> Encode.Builder
 -- > encodeEchoManyRequest =
 -- >   foldMap (Encode.embedded (fieldNumber 1) . encodeEchoRequest)
 -- >   . echoManyRequestRequests
@@ -168,7 +168,6 @@
 module Proto3.Wire.Tutorial where
 
 import           Data.ByteString         ( ByteString )
-import           Data.ByteString.Builder ( Builder )
 import           Data.Monoid             ( (<>) )
 import           Data.Sequence           ( Seq )
 import           Data.Text.Lazy          ( Text )
@@ -180,7 +179,7 @@ import qualified Proto3.Wire.Decode      as Decode
 
 data EchoRequest = EchoRequest { echoRequestMessage :: Text }
 
-encodeEchoRequest :: EchoRequest -> Builder
+encodeEchoRequest :: EchoRequest -> Encode.Builder
 encodeEchoRequest EchoRequest{..} =
     Encode.text (fieldNumber 1) echoRequestMessage
 
@@ -194,7 +193,7 @@ data EchoResponse = EchoResponse { echoResponseMessage   :: Text
                                  , echoResponseTimestamp :: Word64
                                  }
 
-encodedEchoResponse :: EchoResponse -> Builder
+encodedEchoResponse :: EchoResponse -> Encode.Builder
 encodedEchoResponse EchoResponse{..} =
     Encode.text (fieldNumber 1) echoResponseMessage <>
         Encode.uint64 (fieldNumber 2) echoResponseTimestamp
@@ -209,7 +208,7 @@ echoResponseParser = EchoResponse <$> (one Decode.text mempty `at` fieldNumber 1
 data EchoManyRequest = EchoManyRequest { echoManyRequestRequests :: Seq EchoRequest
                                        }
 
-encodeEchoManyRequest :: EchoManyRequest -> Builder
+encodeEchoManyRequest :: EchoManyRequest -> Encode.Builder
 encodeEchoManyRequest = foldMap (Encode.embedded (fieldNumber 1) .
                                      encodeEchoRequest) .
     echoManyRequestRequests
