@@ -21,7 +21,7 @@ module Main where
 import qualified Data.ByteString.Lazy  as BL
 import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
-import           Data.Semigroup        ( (<>) )
+import           Data.Monoid           ( (<>) )
 import qualified Data.Text.Lazy        as T
 
 import           Proto3.Wire
