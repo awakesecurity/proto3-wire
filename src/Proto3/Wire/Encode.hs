@@ -104,9 +104,10 @@ toLazyByteString :: Builder -> BL.ByteString
 toLazyByteString (Builder (Sum len, bb)) =
     BB.toLazyByteStringWith strat BL.empty bb
   where
-    -- If the supplied length is accurate then we will perform
-    -- just one allocation.  Any inaccuracy would indicate
-    -- a bug in one of the primitives that produces a 'Builder'.
+    -- If the supplied length is accurate then we will perform just
+    -- one allocation (unless that length exceeds 'maxFirstChunk').
+    -- An inaccurate length would indicate a bug in
+    -- one of the primitives that produces a 'Builder'.
     maxFirstChunk = 134217728  -- 128MiB
     firstChunk = fromIntegral (min maxFirstChunk len)
     strat = BB.safeStrategy firstChunk BB.defaultChunkSize
