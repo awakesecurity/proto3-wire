@@ -1,6 +1,6 @@
 { mkDerivation, base, bytestring, cereal, containers, deepseq
-, QuickCheck, safe, semigroups, stdenv, tasty, tasty-hunit
-, tasty-quickcheck, text
+, QuickCheck, safe, stdenv, tasty, tasty-hunit, tasty-quickcheck
+, text
 }:
 mkDerivation {
   pname = "proto3-wire";
@@ -10,7 +10,7 @@ mkDerivation {
     base bytestring cereal containers deepseq QuickCheck safe text
   ];
   testHaskellDepends = [
-    base bytestring cereal QuickCheck semigroups tasty tasty-hunit
+    base bytestring cereal QuickCheck tasty tasty-hunit
     tasty-quickcheck text
   ];
   description = "A low-level implementation of the Protocol Buffers (version 3) wire format";
