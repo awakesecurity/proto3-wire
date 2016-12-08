@@ -76,6 +76,24 @@ module Proto3.Wire.Encode
     , Builder
     , builderLength
     , toLazyByteString
+    , word8
+    , word16BE
+    , word16LE
+    , word32BE
+    , word32LE
+    , word64BE
+    , word64LE
+    , int8
+    , int16BE
+    , int16LE
+    , int32BE
+    , int32LE
+    , int64BE
+    , int64LE
+    , floatBE
+    , floatLE
+    , doubleBE
+    , doubleLE
     ) where
 
 import           Data.Bits                     ( (.&.), (.|.), shiftL, shiftR, xor )
@@ -84,12 +102,12 @@ import qualified Data.ByteString.Builder       as BB
 import qualified Data.ByteString.Builder.Extra as BB
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Char                     ( ord )
-import           Data.Int                      ( Int32, Int64 )
+import           Data.Int                      ( Int8, Int16, Int32, Int64 )
 import           Data.Monoid                   ( Sum(..), (<>) )
 import qualified Data.Text.Encoding            as Text.Encoding
 import qualified Data.Text.Lazy                as Text.Lazy
 import qualified Data.Text.Lazy.Encoding       as Text.Lazy.Encoding
-import           Data.Word                     ( Word32, Word64, Word8 )
+import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           Proto3.Wire.Types
 
 -- | Like 'BB.Builder', but memoizes the resulting length so
@@ -114,20 +132,53 @@ toLazyByteString (Builder (Sum len, bb)) =
 word8 :: Word8 -> Builder
 word8 w = Builder (Sum 1, BB.word8 w)
 
+int8 :: Int8 -> Builder
+int8 w = Builder (Sum 1, BB.int8 w)
+
+word16BE :: Word16 -> Builder
+word16BE w = Builder (Sum 2, BB.word16BE w)
+
+word16LE :: Word16 -> Builder
+word16LE w = Builder (Sum 2, BB.word16LE w)
+
+int16BE :: Int16 -> Builder
+int16BE w = Builder (Sum 2, BB.int16BE w)
+
+int16LE :: Int16 -> Builder
+int16LE w = Builder (Sum 2, BB.int16LE w)
+
+word32BE :: Word32 -> Builder
+word32BE w = Builder (Sum 4, BB.word32BE w)
+
 word32LE :: Word32 -> Builder
 word32LE w = Builder (Sum 4, BB.word32LE w)
+
+int32BE :: Int32 -> Builder
+int32BE w = Builder (Sum 4, BB.int32BE w)
 
 int32LE :: Int32 -> Builder
 int32LE w = Builder (Sum 4, BB.int32LE w)
 
+floatBE :: Float -> Builder
+floatBE f = Builder (Sum 4, BB.floatBE f)
+
 floatLE :: Float -> Builder
 floatLE f = Builder (Sum 4, BB.floatLE f)
+
+word64BE :: Word64 -> Builder
+word64BE w = Builder (Sum 8, BB.word64BE w)
 
 word64LE :: Word64 -> Builder
 word64LE w = Builder (Sum 8, BB.word64LE w)
 
+int64BE :: Int64 -> Builder
+int64BE w = Builder (Sum 8, BB.int64BE w)
+
 int64LE :: Int64 -> Builder
 int64LE w = Builder (Sum 8, BB.int64LE w)
+
+doubleBE :: Double -> Builder
+doubleBE f = Builder (Sum 8, BB.doubleBE f)
 
 doubleLE :: Double -> Builder
 doubleLE f = Builder (Sum 8, BB.doubleLE f)
