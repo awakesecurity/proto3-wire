@@ -12,6 +12,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:     Proto3.Wire
+                       Proto3.Wire.Builder
                        Proto3.Wire.Decode
                        Proto3.Wire.Encode
                        Proto3.Wire.Tutorial

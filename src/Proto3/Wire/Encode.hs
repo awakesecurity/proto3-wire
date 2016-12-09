@@ -38,7 +38,6 @@
 -- > fieldNumber 1 `strings` Just "some string" <>
 -- > fieldNumber 2 `strings` [ "foo", "bar", "baz" ]
 
-{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Proto3.Wire.Encode
@@ -60,6 +59,7 @@ module Proto3.Wire.Encode
     , double
     , enum
       -- * Strings
+    , bytes
     , string
     , text
     , byteString
@@ -75,131 +75,39 @@ module Proto3.Wire.Encode
       -- * Reexports
     , Builder
     , builderLength
+    , rawBuilder
     , toLazyByteString
-    , word8
-    , word16BE
-    , word16LE
-    , word32BE
-    , word32LE
-    , word64BE
-    , word64LE
-    , int8
-    , int16BE
-    , int16LE
-    , int32BE
-    , int32LE
-    , int64BE
-    , int64LE
-    , floatBE
-    , floatLE
-    , doubleBE
-    , doubleLE
     ) where
 
 import           Data.Bits                     ( (.&.), (.|.), shiftL, shiftR, xor )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Builder       as BB
-import qualified Data.ByteString.Builder.Extra as BB
 import qualified Data.ByteString.Lazy          as BL
-import           Data.Char                     ( ord )
-import           Data.Int                      ( Int8, Int16, Int32, Int64 )
-import           Data.Monoid                   ( Sum(..), (<>) )
+import           Data.Int                      ( Int32, Int64 )
+import           Data.Monoid                   ( (<>) )
 import qualified Data.Text.Encoding            as Text.Encoding
 import qualified Data.Text.Lazy                as Text.Lazy
 import qualified Data.Text.Lazy.Encoding       as Text.Lazy.Encoding
-import           Data.Word                     ( Word8, Word16, Word32, Word64 )
+import           Data.Word                     ( Word8, Word32, Word64 )
+import qualified Proto3.Wire.Builder           as WB
 import           Proto3.Wire.Types
 
--- | Like 'BB.Builder', but memoizes the resulting length so
--- that we can efficiently encode nested embedded messages.
-newtype Builder = Builder { unBuilder :: (Sum Word, BB.Builder) }
+newtype Builder = Builder { unBuilder :: WB.Builder }
   deriving Monoid
 
 builderLength :: Builder -> Word
-builderLength = getSum . fst . unBuilder
+builderLength = WB.builderLength . unBuilder
+
+rawBuilder :: Builder -> BB.Builder
+rawBuilder = WB.rawBuilder . unBuilder
 
 toLazyByteString :: Builder -> BL.ByteString
-toLazyByteString (Builder (Sum len, bb)) =
-    BB.toLazyByteStringWith strat BL.empty bb
-  where
-    -- If the supplied length is accurate then we will perform just
-    -- one allocation.  An inaccurate length would indicate a bug
-    -- in one of the primitives that produces a 'Builder'.
-    strat = BB.safeStrategy (fromIntegral len) BB.defaultChunkSize
-{-# NOINLINE toLazyByteString #-}
-  -- NOINLINE to avoid bloating caller; see docs for 'BB.toLazyByteStringWith'.
-
-word8 :: Word8 -> Builder
-word8 w = Builder (Sum 1, BB.word8 w)
-
-int8 :: Int8 -> Builder
-int8 w = Builder (Sum 1, BB.int8 w)
-
-word16BE :: Word16 -> Builder
-word16BE w = Builder (Sum 2, BB.word16BE w)
-
-word16LE :: Word16 -> Builder
-word16LE w = Builder (Sum 2, BB.word16LE w)
-
-int16BE :: Int16 -> Builder
-int16BE w = Builder (Sum 2, BB.int16BE w)
-
-int16LE :: Int16 -> Builder
-int16LE w = Builder (Sum 2, BB.int16LE w)
-
-word32BE :: Word32 -> Builder
-word32BE w = Builder (Sum 4, BB.word32BE w)
-
-word32LE :: Word32 -> Builder
-word32LE w = Builder (Sum 4, BB.word32LE w)
-
-int32BE :: Int32 -> Builder
-int32BE w = Builder (Sum 4, BB.int32BE w)
-
-int32LE :: Int32 -> Builder
-int32LE w = Builder (Sum 4, BB.int32LE w)
-
-floatBE :: Float -> Builder
-floatBE f = Builder (Sum 4, BB.floatBE f)
-
-floatLE :: Float -> Builder
-floatLE f = Builder (Sum 4, BB.floatLE f)
-
-word64BE :: Word64 -> Builder
-word64BE w = Builder (Sum 8, BB.word64BE w)
-
-word64LE :: Word64 -> Builder
-word64LE w = Builder (Sum 8, BB.word64LE w)
-
-int64BE :: Int64 -> Builder
-int64BE w = Builder (Sum 8, BB.int64BE w)
-
-int64LE :: Int64 -> Builder
-int64LE w = Builder (Sum 8, BB.int64LE w)
-
-doubleBE :: Double -> Builder
-doubleBE f = Builder (Sum 8, BB.doubleBE f)
-
-doubleLE :: Double -> Builder
-doubleLE f = Builder (Sum 8, BB.doubleLE f)
-
-stringUtf8 :: String -> Builder
-stringUtf8 s = Builder (Sum (len 0 s), BB.stringUtf8 s)
-  where
-    len !n []      = n
-    len !n (h : t) = case ord h of
-      c | c <= 0x7F   -> len (n + 1) t
-        | c <= 0x07FF -> len (n + 2) t
-        | c <= 0xFFFF -> len (n + 3) t
-        | otherwise   -> len (n + 4) t
-{-# INLINABLE stringUtf8 #-}
-  -- INLINABLE so that if the input is constant, the
-  -- compiler has the opportunity to precompute its length.
+toLazyByteString = WB.toLazyByteString . unBuilder
 
 base128Varint :: Word64 -> Builder
 base128Varint i
-    | i .&. 0x7f == i = word8 (fromIntegral i)
-    | otherwise = word8 (0x80 .|. (fromIntegral i .&. 0x7f)) <>
+    | i .&. 0x7f == i = Builder (WB.word8 (fromIntegral i))
+    | otherwise = Builder (WB.word8 (0x80 .|. (fromIntegral i .&. 0x7f))) <>
           base128Varint (i `shiftR` 7)
 
 wireType :: WireType -> Word8
@@ -266,7 +174,7 @@ sint64 num i = int64 num ((i `shiftL` 1) `xor` (i `shiftR` 63))
 --
 -- > fieldNumber 1 `fixed32` 42
 fixed32 :: FieldNumber -> Word32 -> Builder
-fixed32 num i = fieldHeader num Fixed32 <> word32LE i
+fixed32 num i = fieldHeader num Fixed32 <> Builder (WB.word32LE i)
 
 -- | Encode a fixed-width 64-bit integer
 --
@@ -274,7 +182,7 @@ fixed32 num i = fieldHeader num Fixed32 <> word32LE i
 --
 -- > fieldNumber 1 `fixed64` 42
 fixed64 :: FieldNumber -> Word64 -> Builder
-fixed64 num i = fieldHeader num Fixed64 <> word64LE i
+fixed64 num i = fieldHeader num Fixed64 <> Builder (WB.word64LE i)
 
 -- | Encode a fixed-width signed 32-bit integer
 --
@@ -282,7 +190,7 @@ fixed64 num i = fieldHeader num Fixed64 <> word64LE i
 --
 -- > fieldNumber 1 `sfixed32` negate 42
 sfixed32 :: FieldNumber -> Int32 -> Builder
-sfixed32 num i = fieldHeader num Fixed32 <> int32LE i
+sfixed32 num i = fieldHeader num Fixed32 <> Builder (WB.int32LE i)
 
 -- | Encode a fixed-width signed 64-bit integer
 --
@@ -290,7 +198,7 @@ sfixed32 num i = fieldHeader num Fixed32 <> int32LE i
 --
 -- > fieldNumber 1 `sfixed64` negate 42
 sfixed64 :: FieldNumber -> Int64 -> Builder
-sfixed64 num i = fieldHeader num Fixed64 <> int64LE i
+sfixed64 num i = fieldHeader num Fixed64 <> Builder (WB.int64LE i)
 
 -- | Encode a floating point number
 --
@@ -298,7 +206,7 @@ sfixed64 num i = fieldHeader num Fixed64 <> int64LE i
 --
 -- > fieldNumber 1 `float` 3.14
 float :: FieldNumber -> Float -> Builder
-float num f = fieldHeader num Fixed32 <> floatLE f
+float num f = fieldHeader num Fixed32 <> Builder (WB.floatLE f)
 
 -- | Encode a double-precision number
 --
@@ -306,7 +214,7 @@ float num f = fieldHeader num Fixed32 <> floatLE f
 --
 -- > fieldNumber 1 `double` 3.14
 double :: FieldNumber -> Double -> Builder
-double num d = fieldHeader num Fixed64 <> doubleLE d
+double num d = fieldHeader num Fixed64 <> Builder (WB.doubleLE d)
 
 -- | Encode a value with an enumerable type.
 --
@@ -323,13 +231,17 @@ double num d = fieldHeader num Fixed64 <> doubleLE d
 enum :: Enum e => FieldNumber -> e -> Builder
 enum num e = fieldHeader num Varint <> base128Varint (fromIntegral (fromEnum e))
 
+-- | Encode a sequence of octets as a field of type 'bytes'.
+bytes :: FieldNumber -> WB.Builder -> Builder
+bytes num = embedded num . Builder
+
 -- | Encode a UTF-8 string.
 --
 -- For example:
 --
 -- > fieldNumber 1 `string` "testing"
 string :: FieldNumber -> String -> Builder
-string num = embedded num . stringUtf8
+string num = embedded num . Builder . WB.stringUtf8
 
 -- | Encode lazy `Text` as UTF-8
 --
@@ -338,7 +250,7 @@ string num = embedded num . stringUtf8
 -- > fieldNumber 1 `text` "testing"
 text :: FieldNumber -> Text.Lazy.Text -> Builder
 text num txt =
-    embedded num (Builder (Sum len, Text.Lazy.Encoding.encodeUtf8Builder txt))
+    embedded num (Builder (WB.unsafeMakeBuilder len (Text.Lazy.Encoding.encodeUtf8Builder txt)))
   where
     -- It would be nice to avoid actually allocating encoded chunks,
     -- but we leave that enhancement for a future time.
@@ -354,9 +266,7 @@ text num txt =
 --
 -- > fieldNumber 1 `byteString` fromString "some bytes"
 byteString :: FieldNumber -> B.ByteString -> Builder
-byteString num bs = embedded num bldr
-  where
-    bldr = (Builder (Sum (fromIntegral (B.length bs)), BB.byteString bs))
+byteString num bs = embedded num (Builder (WB.byteString bs))
 
 -- | Encode a lazy bytestring.
 --
@@ -364,9 +274,7 @@ byteString num bs = embedded num bldr
 --
 -- > fieldNumber 1 `lazyByteString` fromString "some bytes"
 lazyByteString :: FieldNumber -> BL.ByteString -> Builder
-lazyByteString num bl = embedded num bldr
-  where
-    bldr = (Builder (Sum (fromIntegral (BL.length bl)), BB.lazyByteString bl))
+lazyByteString num bl = embedded num (Builder (WB.lazyByteString bl))
 
 -- | Encode varints in the space-efficient packed format.
 packedVarints :: Foldable f => FieldNumber -> f Word64 -> Builder
@@ -374,19 +282,19 @@ packedVarints num = embedded num . foldMap base128Varint
 
 -- | Encode fixed-width Word32s in the space-efficient packed format.
 packedFixed32 :: Foldable f => FieldNumber -> f Word32 -> Builder
-packedFixed32 num = embedded num . foldMap word32LE
+packedFixed32 num = embedded num . foldMap (Builder . WB.word32LE)
 
 -- | Encode fixed-width Word64s in the space-efficient packed format.
 packedFixed64 :: Foldable f => FieldNumber -> f Word64 -> Builder
-packedFixed64 num = embedded num . foldMap word64LE
+packedFixed64 num = embedded num . foldMap (Builder . WB.word64LE)
 
 -- | Encode floats in the space-efficient packed format.
 packedFloats :: Foldable f => FieldNumber -> f Float -> Builder
-packedFloats num = embedded num . foldMap floatLE
+packedFloats num = embedded num . foldMap (Builder . WB.floatLE)
 
 -- | Encode doubles in the space-efficient packed format.
 packedDoubles :: Foldable f => FieldNumber -> f Double -> Builder
-packedDoubles num = embedded num . foldMap doubleLE
+packedDoubles num = embedded num . foldMap (Builder . WB.doubleLE)
 
 -- | Encode an embedded message.
 --
