@@ -28,6 +28,7 @@ import           Proto3.Wire
 import qualified Proto3.Wire.Encode    as Encode
 import qualified Proto3.Wire.Decode    as Decode
 
+import qualified Test.DocTest
 import           Test.QuickCheck       ( (===), Arbitrary )
 import           Test.Tasty
 import           Test.Tasty.HUnit      ( (@=?) )
@@ -35,7 +36,9 @@ import qualified Test.Tasty.HUnit      as HU
 import qualified Test.Tasty.QuickCheck as QC
 
 main :: IO ()
-main = defaultMain tests
+main = do
+    Test.DocTest.doctest ["src/Proto3/Wire/Builder.hs"]
+    defaultMain tests
 
 tests :: TestTree
 tests = testGroup "Tests" [ roundTripTests
