@@ -98,6 +98,13 @@ import           System.IO                     ( Handle )
 newtype Builder = Builder { unBuilder :: (Sum Word, BB.Builder) }
   deriving Monoid
 
+instance Show Builder where
+  showsPrec prec builder =
+      showParen (prec > 10)
+        (showString "Proto3.Wire.Builder.lazyByteString " . shows bytes)
+    where
+      bytes = toLazyByteString builder
+
 -- | Retrieve the length of a `Builder`
 --
 -- > builderLength (x <> y) = builderLength x + builderLength y
@@ -127,9 +134,8 @@ rawBuilder = snd . unBuilder
 -- provided length value matches the length of the
 -- @"Data.ByteString.Builder".`BB.Builder`@
 --
--- >>> let builder = unsafeMakeBuilder 3 (Data.ByteString.Builder.stringUtf8 "ABC")
--- >>> toLazyByteString builder
--- "ABC"
+-- >>> unsafeMakeBuilder 3 (Data.ByteString.Builder.stringUtf8 "ABC")
+-- Proto3.Wire.Builder.lazyByteString "ABC"
 unsafeMakeBuilder :: Word -> BB.Builder -> Builder
 unsafeMakeBuilder len bldr = Builder (Sum len, bldr)
 
@@ -139,8 +145,8 @@ unsafeMakeBuilder len bldr = Builder (Sum len, bldr)
 -- >
 -- > toLazyByteString mempty = mempty
 --
--- >>> toLazyByteString (stringUtf8 "ABC")
--- "ABC"
+-- >>> stringUtf8 "ABC"
+-- Proto3.Wire.Builder.lazyByteString "ABC"
 toLazyByteString :: Builder -> BL.ByteString
 toLazyByteString (Builder (Sum len, bb)) =
     BB.toLazyByteStringWith strat BL.empty bb
@@ -169,8 +175,8 @@ hPutBuilder handle = BB.hPutBuilder handle . snd . unBuilder
 -- >
 -- > byteString mempty = mempty
 --
--- >>> toLazyByteString (byteString "ABC")
--- "ABC"
+-- >>> byteString "ABC"
+-- Proto3.Wire.Builder.lazyByteString "ABC"
 byteString :: B.ByteString -> Builder
 byteString bs = Builder (Sum (fromIntegral (B.length bs)), BB.byteString bs)
 
@@ -187,8 +193,8 @@ byteString bs = Builder (Sum (fromIntegral (B.length bs)), BB.byteString bs)
 -- >
 -- > toLazyByteString . lazyByteString = id
 --
--- >>> toLazyByteString (lazyByteString "ABC")
--- "ABC"
+-- >>> lazyByteString "ABC"
+-- Proto3.Wire.Builder.lazyByteString "ABC"
 lazyByteString :: BL.ByteString -> Builder
 lazyByteString bl =
   Builder (Sum (fromIntegral (BL.length bl)), BB.lazyByteString bl)
@@ -199,8 +205,8 @@ lazyByteString bl =
 -- >
 -- > shortByteString mempty = mempty
 --
--- >>> toLazyByteString (shortByteString "ABC")
--- "ABC"
+-- >>> shortByteString "ABC"
+-- Proto3.Wire.Builder.lazyByteString "ABC"
 shortByteString :: BS.ShortByteString -> Builder
 shortByteString bs =
   Builder (Sum (fromIntegral (BS.length bs)), BB.shortByteString bs)
@@ -394,10 +400,10 @@ doubleLE f = Builder (Sum 8, BB.doubleLE f)
 -- __Careful:__ If you provide a Unicode character that is not part of the
 -- @ASCII@ alphabet this will only encode the lowest 7 bits
 --
--- >>> toLazyByteString (char7 ';')
--- ";"
--- >>> toLazyByteString (char7 'λ') -- Example of truncation
--- ";"
+-- >>> char7 ';'
+-- Proto3.Wire.Builder.lazyByteString ";"
+-- >>> char7 'λ' -- Example of truncation
+-- Proto3.Wire.Builder.lazyByteString ";"
 char7 :: Char -> Builder
 char7 c = Builder (Sum 1, BB.char7 c)
 
@@ -410,10 +416,10 @@ char7 c = Builder (Sum 1, BB.char7 c)
 -- >
 -- > string7 mempty = mempty
 --
--- >>> toLazyByteString (string7 "ABC")
--- "ABC"
--- >>> toLazyByteString (string7 "←↑→↓") -- Example of truncation
--- "\DLE\DC1\DC2\DC3"
+-- >>> string7 "ABC"
+-- Proto3.Wire.Builder.lazyByteString "ABC"
+-- >>> string7 "←↑→↓" -- Example of truncation
+-- Proto3.Wire.Builder.lazyByteString "\DLE\DC1\DC2\DC3"
 string7 :: String -> Builder
 string7 s = Builder (Sum (fromIntegral (length s)), BB.string7 s)
 
@@ -422,10 +428,10 @@ string7 s = Builder (Sum (fromIntegral (length s)), BB.string7 s)
 -- __Careful:__ If you provide a Unicode character that is not part of the
 -- @ISO/IEC 8859-1@ alphabet then this will only encode the lowest 8 bits
 --
--- >>> toLazyByteString (char8 ';')
--- ";"
--- >>> toLazyByteString (char8 'λ') -- Example of truncation
--- "\187"
+-- >>> char8 ';'
+-- Proto3.Wire.Builder.lazyByteString ";"
+-- >>> char8 'λ' -- Example of truncation
+-- Proto3.Wire.Builder.lazyByteString "\187"
 char8 :: Char -> Builder
 char8 c = Builder (Sum 1, BB.char8 c)
 
@@ -438,19 +444,19 @@ char8 c = Builder (Sum 1, BB.char8 c)
 -- >
 -- > string8 mempty = mempty
 --
--- >>> toLazyByteString (string8 "ABC")
--- "ABC"
--- >>> toLazyByteString (string8 "←↑→↓") -- Example of truncation
--- "\144\145\146\147"
+-- >>> string8 "ABC"
+-- Proto3.Wire.Builder.lazyByteString "ABC"
+-- >>> string8 "←↑→↓" -- Example of truncation
+-- Proto3.Wire.Builder.lazyByteString "\144\145\146\147"
 string8 :: String -> Builder
 string8 s = Builder (Sum (fromIntegral (length s)), BB.string8 s)
 
 -- | Convert a Unicode `Char` to a `Builder` using a @UTF-8@ encoding
 --
--- >>> toLazyByteString (charUtf8 'A')
--- "A"
--- >>> toLazyByteString (charUtf8 'λ')
--- "\206\187"
+-- >>> charUtf8 'A'
+-- Proto3.Wire.Builder.lazyByteString "A"
+-- >>> charUtf8 'λ'
+-- Proto3.Wire.Builder.lazyByteString "\206\187"
 -- >>> hPutBuilder System.IO.stdout (charUtf8 'λ' <> charUtf8 '\n')
 -- λ
 charUtf8 :: Char -> Builder
@@ -462,10 +468,10 @@ charUtf8 c = Builder (Sum (utf8Width c), BB.charUtf8 c)
 -- >
 -- > stringUtf8 mempty = mempty
 --
--- >>> toLazyByteString (stringUtf8 "ABC")
--- "ABC"
--- >>> toLazyByteString (stringUtf8 "←↑→↓")
--- "\226\134\144\226\134\145\226\134\146\226\134\147"
+-- >>> stringUtf8 "ABC"
+-- Proto3.Wire.Builder.lazyByteString "ABC"
+-- >>> stringUtf8 "←↑→↓"
+-- Proto3.Wire.Builder.lazyByteString "\226\134\144\226\134\145\226\134\146\226\134\147"
 -- >>> hPutBuilder System.IO.stdout (stringUtf8 "←↑→↓\n")
 -- ←↑→↓
 stringUtf8 :: String -> Builder
