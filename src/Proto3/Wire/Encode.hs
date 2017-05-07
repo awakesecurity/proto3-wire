@@ -132,7 +132,7 @@ int32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 --
 -- For example:
 --
--- > 1 `int64` negate 42
+-- > 1 `int64` (-42)
 int64 :: FieldNumber -> Int64 -> Builder
 int64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 
@@ -156,7 +156,7 @@ uint64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 --
 -- For example:
 --
--- > 1 `sint32` negate 42
+-- > 1 `sint32` (-42)
 sint32 :: FieldNumber -> Int32 -> Builder
 sint32 num i = int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
 
@@ -164,7 +164,7 @@ sint32 num i = int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
 --
 -- For example:
 --
--- > 1 `sint64` negate 42
+-- > 1 `sint64` (-42)
 sint64 :: FieldNumber -> Int64 -> Builder
 sint64 num i = int64 num ((i `shiftL` 1) `xor` (i `shiftR` 63))
 
@@ -188,7 +188,7 @@ fixed64 num i = fieldHeader num Fixed64 <> Builder (WB.word64LE i)
 --
 -- For example:
 --
--- > 1 `sfixed32` negate 42
+-- > 1 `sfixed32` (-42)
 sfixed32 :: FieldNumber -> Int32 -> Builder
 sfixed32 num i = fieldHeader num Fixed32 <> Builder (WB.int32LE i)
 
@@ -196,7 +196,7 @@ sfixed32 num i = fieldHeader num Fixed32 <> Builder (WB.int32LE i)
 --
 -- For example:
 --
--- > 1 `sfixed64` negate 42
+-- > 1 `sfixed64` (-42)
 sfixed64 :: FieldNumber -> Int64 -> Builder
 sfixed64 num i = fieldHeader num Fixed64 <> Builder (WB.int64LE i)
 
