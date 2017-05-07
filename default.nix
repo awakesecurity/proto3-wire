@@ -1,13 +1,14 @@
 { mkDerivation, base, bytestring, cereal, containers, deepseq
-, doctest, QuickCheck, safe, stdenv, tasty, tasty-hunit
-, tasty-quickcheck, text
+, doctest, hashable, QuickCheck, safe, stdenv, tasty, tasty-hunit
+, tasty-quickcheck, text, unordered-containers
 }:
 mkDerivation {
   pname = "proto3-wire";
   version = "1.0.0";
   src = ./.;
   libraryHaskellDepends = [
-    base bytestring cereal containers deepseq QuickCheck safe text
+    base bytestring cereal containers deepseq hashable QuickCheck safe
+    text unordered-containers
   ];
   testHaskellDepends = [
     base bytestring cereal doctest QuickCheck tasty tasty-hunit
