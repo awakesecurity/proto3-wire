@@ -24,13 +24,10 @@
 
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE DeriveFunctor              #-}
-{-# LANGUAGE FlexibleInstances          #-}
-{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
-{-# LANGUAGE UndecidableInstances       #-}
 
 module Proto3.Wire.Decode
     ( -- * Untyped Representation
@@ -81,10 +78,8 @@ import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
 import           Data.Foldable           ( foldl', toList )
-import           Data.Function           ( on )
 import           Data.Hashable           ( Hashable )
 import qualified Data.HashMap.Strict
-import           Data.List               ( groupBy )
 import qualified Data.Map.Strict         as M
 import           Data.Maybe              ( fromMaybe )
 import           Data.Monoid             ( (<>) )

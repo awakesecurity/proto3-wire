@@ -1,7 +1,4 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
-{-# LANGUAGE DeriveGeneric              #-}
-{-# LANGUAGE DeriveTraversable          #-}
-{-# LANGUAGE TypeFamilies               #-}
 
 {-
   Copyright 2016 Awake Networks
