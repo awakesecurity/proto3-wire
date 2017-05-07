@@ -49,7 +49,7 @@
 --
 -- > encodeEchoRequest :: EchoRequest -> Encode.Builder
 -- > encodeEchoRequest EchoRequest{..} =
--- >     Encode.text (fieldNumber 1) echoRequestMessage
+-- >     Encode.text 1 echoRequestMessage
 --
 -- Fields of type @string@ can be encoded\/decoded from\/to values of type 'String',
 -- 'ByteString' and 'Text'. Here we use the 'Text' type, which is encoded using
@@ -73,7 +73,7 @@
 -- constructor to the result:
 --
 -- > echoRequestParser :: Decode.Parser Decode.RawMessage EchoRequest
--- > echoRequestParser = EchoRequest <$> (one Decode.text mempty `at` fieldNumber 1)
+-- > echoRequestParser = EchoRequest <$> (one Decode.text mempty `at` 1
 --
 -- = Messages with multiple fields
 --
@@ -98,8 +98,8 @@
 --
 -- > encodedEchoResponse :: EchoResponse -> Encode.Builder
 -- > encodedEchoResponse EchoResponse{..} =
--- >     Encode.text (fieldNumber 1) echoResponseMessage <>
--- >         Encode.uint64 (fieldNumber 2) echoResponseTimestamp
+-- >     Encode.text 1 echoResponseMessage <>
+-- >         Encode.uint64 2 echoResponseTimestamp
 --
 -- However, be careful to always use increasing field numbers, since this is not
 -- enforced by the library.
@@ -113,8 +113,8 @@
 -- > decodeEchoResponse = Decode.parse echoResponseParser
 -- >
 -- > echoResponseParser :: Decode.Parser Decode.RawMessage EchoResponse
--- > echoResponseParser = EchoResponse <$> (one Decode.text mempty `at` fieldNumber 1)
--- >                                   <*> (one Decode.uint64 0 `at` fieldNumber 2)
+-- > echoResponseParser = EchoResponse <$> (one Decode.text mempty `at` 1)
+-- >                                   <*> (one Decode.uint64 0 `at` 2)
 --
 -- = Repeated Fields and Embedded Messages
 --
@@ -145,7 +145,7 @@
 --
 -- > encodeEchoManyRequest :: EchoManyRequest -> Encode.Builder
 -- > encodeEchoManyRequest =
--- >   foldMap (Encode.embedded (fieldNumber 1) . encodeEchoRequest)
+-- >   foldMap (Encode.embedded 1 . encodeEchoRequest)
 -- >   . echoManyRequestRequests
 --
 -- == Decoding
@@ -161,8 +161,7 @@
 -- >
 -- > echoManyRequestParser :: Decode.Parser Decode.RawMessage EchoManyRequest
 -- > echoManyRequestParser =
--- >   EchoManyRequest <$> (repeated (Decode.embedded' echoRequestParser)
--- >     `at` fieldNumber 1)
+-- >   EchoManyRequest <$> (repeated (Decode.embedded' echoRequestParser) `at` 1)
 {-# LANGUAGE RecordWildCards #-}
 
 module Proto3.Wire.Tutorial where
@@ -181,13 +180,13 @@ data EchoRequest = EchoRequest { echoRequestMessage :: Text }
 
 encodeEchoRequest :: EchoRequest -> Encode.Builder
 encodeEchoRequest EchoRequest{..} =
-    Encode.text (fieldNumber 1) echoRequestMessage
+    Encode.text 1 echoRequestMessage
 
 decodeEchoRequest :: ByteString -> Either Decode.ParseError EchoRequest
 decodeEchoRequest = Decode.parse echoRequestParser
 
 echoRequestParser :: Decode.Parser Decode.RawMessage EchoRequest
-echoRequestParser = EchoRequest <$> (one Decode.text mempty `at` fieldNumber 1)
+echoRequestParser = EchoRequest <$> (one Decode.text mempty `at` 1)
 
 data EchoResponse = EchoResponse { echoResponseMessage   :: Text
                                  , echoResponseTimestamp :: Word64
@@ -195,21 +194,21 @@ data EchoResponse = EchoResponse { echoResponseMessage   :: Text
 
 encodedEchoResponse :: EchoResponse -> Encode.Builder
 encodedEchoResponse EchoResponse{..} =
-    Encode.text (fieldNumber 1) echoResponseMessage <>
-        Encode.uint64 (fieldNumber 2) echoResponseTimestamp
+    Encode.text 1 echoResponseMessage <>
+        Encode.uint64 2 echoResponseTimestamp
 
 decodeEchoResponse :: ByteString -> Either Decode.ParseError EchoResponse
 decodeEchoResponse = Decode.parse echoResponseParser
 
 echoResponseParser :: Decode.Parser Decode.RawMessage EchoResponse
-echoResponseParser = EchoResponse <$> (one Decode.text mempty `at` fieldNumber 1)
-                                  <*> (one Decode.uint64 0 `at` fieldNumber 2)
+echoResponseParser = EchoResponse <$> (one Decode.text mempty `at` 1)
+                                  <*> (one Decode.uint64 0 `at` 2)
 
 data EchoManyRequest = EchoManyRequest { echoManyRequestRequests :: Seq EchoRequest
                                        }
 
 encodeEchoManyRequest :: EchoManyRequest -> Encode.Builder
-encodeEchoManyRequest = foldMap (Encode.embedded (fieldNumber 1) .
+encodeEchoManyRequest = foldMap (Encode.embedded 1 .
                                      encodeEchoRequest) .
     echoManyRequestRequests
 
@@ -217,5 +216,4 @@ decodeEchoManyRequest :: ByteString -> Either Decode.ParseError EchoManyRequest
 decodeEchoManyRequest = Decode.parse echoManyRequestParser
 
 echoManyRequestParser :: Decode.Parser Decode.RawMessage EchoManyRequest
-echoManyRequestParser = EchoManyRequest <$> (repeated (Decode.embedded' echoRequestParser) `at`
-                                                 fieldNumber 1)
+echoManyRequestParser = EchoManyRequest <$> (repeated (Decode.embedded' echoRequestParser) `at` 1)

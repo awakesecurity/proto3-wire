@@ -35,8 +35,8 @@
 -- > strings :: Foldable f => FieldNumber -> f String -> Builder
 -- > strings = foldMap . string
 -- >
--- > fieldNumber 1 `strings` Just "some string" <>
--- > fieldNumber 2 `strings` [ "foo", "bar", "baz" ]
+-- > 1 `strings` Just "some string" <>
+-- > 2 `strings` [ "foo", "bar", "baz" ]
 
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
@@ -124,7 +124,7 @@ fieldHeader num wt = base128Varint ((getFieldNumber num `shiftL` 3) .|.
 --
 -- For example:
 --
--- > fieldNumber 1 `int32` 42
+-- > 1 `int32` 42
 int32 :: FieldNumber -> Int32 -> Builder
 int32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 
@@ -132,7 +132,7 @@ int32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 --
 -- For example:
 --
--- > fieldNumber 1 `int64` negate 42
+-- > 1 `int64` negate 42
 int64 :: FieldNumber -> Int64 -> Builder
 int64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 
@@ -140,7 +140,7 @@ int64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 --
 -- For example:
 --
--- > fieldNumber 1 `uint32` 42
+-- > 1 `uint32` 42
 uint32 :: FieldNumber -> Word32 -> Builder
 uint32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 
@@ -148,7 +148,7 @@ uint32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 --
 -- For example:
 --
--- > fieldNumber 1 `uint64` 42
+-- > 1 `uint64` 42
 uint64 :: FieldNumber -> Word64 -> Builder
 uint64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 
@@ -156,7 +156,7 @@ uint64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 --
 -- For example:
 --
--- > fieldNumber 1 `sint32` negate 42
+-- > 1 `sint32` negate 42
 sint32 :: FieldNumber -> Int32 -> Builder
 sint32 num i = int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
 
@@ -164,7 +164,7 @@ sint32 num i = int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
 --
 -- For example:
 --
--- > fieldNumber 1 `sint64` negate 42
+-- > 1 `sint64` negate 42
 sint64 :: FieldNumber -> Int64 -> Builder
 sint64 num i = int64 num ((i `shiftL` 1) `xor` (i `shiftR` 63))
 
@@ -172,7 +172,7 @@ sint64 num i = int64 num ((i `shiftL` 1) `xor` (i `shiftR` 63))
 --
 -- For example:
 --
--- > fieldNumber 1 `fixed32` 42
+-- > 1 `fixed32` 42
 fixed32 :: FieldNumber -> Word32 -> Builder
 fixed32 num i = fieldHeader num Fixed32 <> Builder (WB.word32LE i)
 
@@ -180,7 +180,7 @@ fixed32 num i = fieldHeader num Fixed32 <> Builder (WB.word32LE i)
 --
 -- For example:
 --
--- > fieldNumber 1 `fixed64` 42
+-- > 1 `fixed64` 42
 fixed64 :: FieldNumber -> Word64 -> Builder
 fixed64 num i = fieldHeader num Fixed64 <> Builder (WB.word64LE i)
 
@@ -188,7 +188,7 @@ fixed64 num i = fieldHeader num Fixed64 <> Builder (WB.word64LE i)
 --
 -- For example:
 --
--- > fieldNumber 1 `sfixed32` negate 42
+-- > 1 `sfixed32` negate 42
 sfixed32 :: FieldNumber -> Int32 -> Builder
 sfixed32 num i = fieldHeader num Fixed32 <> Builder (WB.int32LE i)
 
@@ -196,7 +196,7 @@ sfixed32 num i = fieldHeader num Fixed32 <> Builder (WB.int32LE i)
 --
 -- For example:
 --
--- > fieldNumber 1 `sfixed64` negate 42
+-- > 1 `sfixed64` negate 42
 sfixed64 :: FieldNumber -> Int64 -> Builder
 sfixed64 num i = fieldHeader num Fixed64 <> Builder (WB.int64LE i)
 
@@ -204,7 +204,7 @@ sfixed64 num i = fieldHeader num Fixed64 <> Builder (WB.int64LE i)
 --
 -- For example:
 --
--- > fieldNumber 1 `float` 3.14
+-- > 1 `float` 3.14
 float :: FieldNumber -> Float -> Builder
 float num f = fieldHeader num Fixed32 <> Builder (WB.floatLE f)
 
@@ -212,7 +212,7 @@ float num f = fieldHeader num Fixed32 <> Builder (WB.floatLE f)
 --
 -- For example:
 --
--- > fieldNumber 1 `double` 3.14
+-- > 1 `double` 3.14
 double :: FieldNumber -> Double -> Builder
 double num d = fieldHeader num Fixed64 <> Builder (WB.doubleLE d)
 
@@ -226,8 +226,8 @@ double num d = fieldHeader num Fixed64 <> Builder (WB.doubleLE d)
 -- > data Shape = Circle | Square | Triangle
 -- >   deriving (Show, Eq, Ord, Enum)
 -- >
--- > fieldNumber 1 `enum` True <>
--- > fieldNumber 2 `enum` Circle
+-- > 1 `enum` True <>
+-- > 2 `enum` Circle
 enum :: Enum e => FieldNumber -> e -> Builder
 enum num e = fieldHeader num Varint <> base128Varint (fromIntegral (fromEnum e))
 
@@ -239,7 +239,7 @@ bytes num = embedded num . Builder
 --
 -- For example:
 --
--- > fieldNumber 1 `string` "testing"
+-- > 1 `string` "testing"
 string :: FieldNumber -> String -> Builder
 string num = embedded num . Builder . WB.stringUtf8
 
@@ -247,7 +247,7 @@ string num = embedded num . Builder . WB.stringUtf8
 --
 -- For example:
 --
--- > fieldNumber 1 `text` "testing"
+-- > 1 `text` "testing"
 text :: FieldNumber -> Text.Lazy.Text -> Builder
 text num txt =
     embedded num (Builder (WB.unsafeMakeBuilder len (Text.Lazy.Encoding.encodeUtf8Builder txt)))
@@ -264,7 +264,7 @@ text num txt =
 --
 -- For example:
 --
--- > fieldNumber 1 `byteString` fromString "some bytes"
+-- > 1 `byteString` fromString "some bytes"
 byteString :: FieldNumber -> B.ByteString -> Builder
 byteString num bs = embedded num (Builder (WB.byteString bs))
 
@@ -272,7 +272,7 @@ byteString num bs = embedded num (Builder (WB.byteString bs))
 --
 -- For example:
 --
--- > fieldNumber 1 `lazyByteString` fromString "some bytes"
+-- > 1 `lazyByteString` fromString "some bytes"
 lazyByteString :: FieldNumber -> BL.ByteString -> Builder
 lazyByteString num bl = embedded num (Builder (WB.lazyByteString bl))
 
@@ -303,9 +303,9 @@ packedDoubles num = embedded num . foldMap (Builder . WB.doubleLE)
 --
 -- For example:
 --
--- > embedded (fieldNumber 1) $
--- >   fieldNumber (fieldNumber 1) `string` "this message" <>
--- >   fieldNumber (fieldNumber 2) `string` " is embedded"
+-- > embedded 1 $
+-- >   1 `string` "this message" <>
+-- >   2 `string` " is embedded"
 embedded :: FieldNumber -> Builder -> Builder
 embedded num bb = fieldHeader num LengthDelimited <>
     base128Varint (fromIntegral (builderLength bb)) <>
