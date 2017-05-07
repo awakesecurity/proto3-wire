@@ -39,7 +39,10 @@ import           Test.QuickCheck ( Arbitrary(..), choose )
 -- sure that field numbers are provided in increasing order. Such things are
 -- left to other, higher-level libraries.
 newtype FieldNumber = FieldNumber { getFieldNumber :: Word64 }
-    deriving (Show, Eq, Ord, Enum, NFData, Num)
+    deriving (Eq, Ord, Enum, NFData, Num)
+
+instance Show FieldNumber where
+    show (FieldNumber n) = show n
 
 instance Arbitrary FieldNumber where
   arbitrary = fmap FieldNumber $ choose (1, 536870911)
