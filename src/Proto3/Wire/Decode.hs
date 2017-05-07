@@ -82,11 +82,14 @@ import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
 import           Data.Foldable           ( foldl', toList )
 import           Data.Function           ( on )
+import           Data.Hashable           ( Hashable )
+import qualified Data.HashMap.Strict
 import           Data.List               ( groupBy )
 import qualified Data.Map.Strict         as M
 import           Data.Maybe              ( fromMaybe )
 import           Data.Monoid             ( (<>) )
 import           Data.Sequence           ( Seq, ViewR(..), fromList, viewr )
+import qualified Data.Sequence
 import           Data.Serialize.Get      ( Get, getWord8, getByteString, getInt32le
                                          , getInt64le, getWord32le, getWord64le
                                          , runGet , isEmpty )
@@ -178,10 +181,14 @@ getFields = do
     keyvals <- many getKeyVal
     e <- isEmpty
     unless e $ fail "Encountered bytes that aren't valid key/value pairs."
-    let grouped = groupBy ((==) `on` fst) keyvals
-    return $
-        M.fromList $
-            map (\kvs@(kv : _) -> (fst kv, fromList $ map snd kvs)) grouped
+    return (toMap keyvals)
+
+toMap :: (Eq k, Hashable k, Ord k) => [(k, v)] -> M.Map k (Seq v)
+toMap kvs0 = M.fromList (Data.HashMap.Strict.toList hashMap)
+  where
+    kvs1 = map (\(k, v) -> (k, Data.Sequence.singleton v)) kvs0
+
+    hashMap = Data.HashMap.Strict.fromListWith (<>) kvs1
 
 -- | Turns a raw protobuf message into a map from 'FieldNumber' to a list
 -- of all 'ParsedField' values that are labeled with that number.
