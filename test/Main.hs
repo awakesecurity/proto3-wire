@@ -37,7 +37,11 @@ import qualified Test.Tasty.QuickCheck as QC
 
 main :: IO ()
 main = do
-    Test.DocTest.doctest ["src/Proto3/Wire/Builder.hs"]
+    Test.DocTest.doctest
+      [ "-isrc"
+      , "src/Proto3/Wire/Builder.hs"
+      , "src/Proto3/Wire/Encode.hs"
+      ]
     defaultMain tests
 
 tests :: TestTree
