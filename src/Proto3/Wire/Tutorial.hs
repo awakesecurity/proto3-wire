@@ -47,7 +47,7 @@
 -- To encode an 'EchoRequest', we use the @Encode.'Encode.text'@ function, and provide
 -- the field number and the text value:
 --
--- > encodeEchoRequest :: EchoRequest -> Encode.Builder
+-- > encodeEchoRequest :: EchoRequest -> Encode.Message
 -- > encodeEchoRequest EchoRequest{..} =
 -- >     Encode.text 1 echoRequestMessage
 --
@@ -93,10 +93,10 @@
 -- == Encoding
 --
 -- To encode messages with multiple fields, note that functions in the
--- "Proto3.Wire.Encode" module return values in the 'Encode.Builder' monoid,
+-- "Proto3.Wire.Encode" module return values in the 'Encode.Message' monoid,
 -- so we can use `mappend` to combine messages:
 --
--- > encodedEchoResponse :: EchoResponse -> Encode.Builder
+-- > encodedEchoResponse :: EchoResponse -> Encode.Message
 -- > encodedEchoResponse EchoResponse{..} =
 -- >     Encode.text 1 echoResponseMessage <>
 -- >         Encode.uint64 2 echoResponseTimestamp
@@ -136,14 +136,14 @@
 -- Messages can be embedded using `Encode.embedded`.
 --
 -- In protocol buffers version 3, all fields are optional. To omit a value for a
--- field, simply do not append it to the 'Encode.Builder'.
+-- field, simply do not append it to the 'Encode.Message'.
 --
 -- Similarly, repeated fields can be encoded by concatenating several values
 -- with the same 'FieldNumber'.
 --
 -- It can be useful to use 'foldMap' to deal with these cases.
 --
--- > encodeEchoManyRequest :: EchoManyRequest -> Encode.Builder
+-- > encodeEchoManyRequest :: EchoManyRequest -> Encode.Message
 -- > encodeEchoManyRequest =
 -- >   foldMap (Encode.embedded 1 . encodeEchoRequest)
 -- >   . echoManyRequestRequests
@@ -178,7 +178,7 @@ import qualified Proto3.Wire.Decode      as Decode
 
 data EchoRequest = EchoRequest { echoRequestMessage :: Text }
 
-encodeEchoRequest :: EchoRequest -> Encode.Builder
+encodeEchoRequest :: EchoRequest -> Encode.Message
 encodeEchoRequest EchoRequest{..} =
     Encode.text 1 echoRequestMessage
 
@@ -192,7 +192,7 @@ data EchoResponse = EchoResponse { echoResponseMessage   :: Text
                                  , echoResponseTimestamp :: Word64
                                  }
 
-encodedEchoResponse :: EchoResponse -> Encode.Builder
+encodedEchoResponse :: EchoResponse -> Encode.Message
 encodedEchoResponse EchoResponse{..} =
     Encode.text 1 echoResponseMessage <>
         Encode.uint64 2 echoResponseTimestamp
@@ -207,7 +207,7 @@ echoResponseParser = EchoResponse <$> (one Decode.text mempty `at` 1)
 data EchoManyRequest = EchoManyRequest { echoManyRequestRequests :: Seq EchoRequest
                                        }
 
-encodeEchoManyRequest :: EchoManyRequest -> Encode.Builder
+encodeEchoManyRequest :: EchoManyRequest -> Encode.Message
 encodeEchoManyRequest = foldMap (Encode.embedded 1 .
                                      encodeEchoRequest) .
     echoManyRequestRequests
