@@ -127,13 +127,11 @@ rawMessage = WB.rawBuilder . unMessage
 toLazyByteString :: Message -> BL.ByteString
 toLazyByteString = WB.toLazyByteString . unMessage
 
--- | This is the only utility in this module that lets you build a malformed
--- protobuf message
---
--- This lets you cast an arbitrary `ByteString` to a `Message`, whether or not
+-- | This lets you cast an arbitrary `ByteString` to a `Message`, whether or not
 -- the `ByteString` corresponds to a valid serialized protobuf message
 --
--- Do not use this function unless you know what you're doing
+-- Do not use this function unless you know what you're doing because it lets
+-- you assemble malformed protobuf `Message`s
 unsafeFromLazyByteString :: BL.ByteString -> Message
 unsafeFromLazyByteString bytes' = Message { unMessage = WB.lazyByteString bytes' }
 
