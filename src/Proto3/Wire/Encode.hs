@@ -103,7 +103,7 @@ import           Proto3.Wire.Types
 -- Use the utilities provided by this module to build `Message`s
 --
 -- You can concatenate two messages using the `Monoid` instance for `Message`
--- 
+--
 -- Use `toLazyByteString` when you're done assembling the `Message`
 newtype Message = Message { unMessage :: WB.Builder }
   deriving Monoid
