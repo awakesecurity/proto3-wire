@@ -114,7 +114,7 @@ roundTripTests = testGroup "Roundtrip tests"
 
 roundTrip :: (Show a, Eq a, Arbitrary a)
           => String
-          -> (a -> Encode.Message)
+          -> (a -> Encode.MessageBuilder)
           -> Decode.Parser Decode.RawMessage a
           -> TestTree
 roundTrip name encode decode =
