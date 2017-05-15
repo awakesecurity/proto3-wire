@@ -178,12 +178,20 @@ getFields = do
     unless e $ fail "Encountered bytes that aren't valid key/value pairs."
     return (toMap keyvals)
 
-toMap :: (Eq k, Hashable k, Ord k) => [(k, v)] -> M.Map k (Seq v)
+-- | Convert key-value pairs to a map of keys to a sequence of values with that
+-- key, in their original occurrence order.
+--
+-- >>> toMap ([("k1", 3),("k2", 4),("k1", 6)] :: [(String,Int)])
+-- fromList [("k1",fromList [3,6]),("k2",fromList [4])]
+--
+-- >>> toMap ([("k2", 7), ("k1", 6), ("k1", 3), ("k2", 4), ("k2", 5)] :: [(String,Int)])
+-- fromList [("k1",fromList [6,3]),("k2",fromList [7,4,5])]
+--
+toMap :: (Hashable k, Ord k) => [(k, v)] -> M.Map k (Seq v)
 toMap kvs0 = M.fromList (Data.HashMap.Strict.toList hashMap)
   where
     kvs1 = map (\(k, v) -> (k, Data.Sequence.singleton v)) kvs0
-
-    hashMap = Data.HashMap.Strict.fromListWith (<>) kvs1
+    hashMap = Data.HashMap.Strict.fromListWith (flip (<>)) kvs1
 
 -- | Turns a raw protobuf message into a map from 'FieldNumber' to a list
 -- of all 'ParsedField' values that are labeled with that number.
