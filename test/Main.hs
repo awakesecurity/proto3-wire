@@ -41,6 +41,7 @@ main = do
       [ "-isrc"
       , "src/Proto3/Wire/Builder.hs"
       , "src/Proto3/Wire/Encode.hs"
+      , "src/Proto3/Wire/Decode.hs"
       ]
     defaultMain tests
 
