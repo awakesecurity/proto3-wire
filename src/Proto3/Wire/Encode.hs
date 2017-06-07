@@ -139,7 +139,7 @@ unsafeFromLazyByteString bytes' =
 
 base128Varint :: Word64 -> MessageBuilder
 base128Varint i
-    | i .&. 0x7f == i = MessageBuilder (WB.word8 (fromIntegral i))
+    | i <= 0x7f = MessageBuilder (WB.word8 (fromIntegral i))
     | otherwise = MessageBuilder (WB.word8 (0x80 .|. (fromIntegral i .&. 0x7f))) <>
           base128Varint (i `shiftR` 7)
 
