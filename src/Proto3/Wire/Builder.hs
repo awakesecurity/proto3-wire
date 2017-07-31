@@ -145,8 +145,8 @@ unsafeMakeBuilder len bldr = Builder (Sum len, bldr)
 -- >
 -- > toLazyByteString mempty = mempty
 --
--- >>> stringUtf8 "ABC"
--- Proto3.Wire.Builder.lazyByteString "ABC"
+-- >>> toLazyByteString (stringUtf8 "ABC")
+-- "ABC"
 toLazyByteString :: Builder -> BL.ByteString
 toLazyByteString (Builder (Sum len, bb)) =
     BB.toLazyByteStringWith strat BL.empty bb
