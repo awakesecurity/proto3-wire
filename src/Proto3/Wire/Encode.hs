@@ -81,7 +81,7 @@ module Proto3.Wire.Encode
     , packedDoubles
     ) where
 
-import           Data.Bits                     ( (.&.), (.|.), shiftL, shiftR, xor )
+import           Data.Bits                     ( (.|.), shiftL, shiftR, xor )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Builder       as BB
 import qualified Data.ByteString.Lazy          as BL
