@@ -420,19 +420,19 @@ double = runGetFixed64 getFloat64le
 
 -- | Parse an integer primitive with the @fixed32@ wire type.
 fixed32 :: Parser RawPrimitive Word32
-fixed32 = fmap fromIntegral (runGetFixed32 getWord32le)
+fixed32 = runGetFixed32 getWord32le
 
 -- | Parse an integer primitive with the @fixed64@ wire type.
 fixed64 :: Parser RawPrimitive Word64
-fixed64 = fmap fromIntegral (runGetFixed64 getWord64le)
+fixed64 = runGetFixed64 getWord64le
 
 -- | Parse a signed integer primitive with the @fixed32@ wire type.
 sfixed32 :: Parser RawPrimitive Int32
-sfixed32 = fmap fromIntegral (runGetFixed32 getInt32le)
+sfixed32 = runGetFixed32 getInt32le
 
 -- | Parse a signed integer primitive with the @fixed64@ wire type.
 sfixed64 :: Parser RawPrimitive Int64
-sfixed64 = fmap fromIntegral (runGetFixed64 getInt64le)
+sfixed64 = runGetFixed64 getInt64le
 
 -- | Turn a field parser into a message parser, by specifying the 'FieldNumber'.
 --
