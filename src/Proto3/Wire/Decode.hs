@@ -267,7 +267,7 @@ parse parser bs = case decodeWire bs of
     Right res -> runParser parser res
 
 -- | To comply with the protobuf spec, if there are multiple fields with the same
--- field number, this will always return the last one
+-- field number, this will always return the last one.
 parsedField :: RawField -> Maybe RawPrimitive
 parsedField xs = case viewr xs of
     EmptyR -> Nothing
