@@ -213,7 +213,7 @@ data ParseError =
                 BinaryError Text
                 |
                 -- | An 'EmbeddedError' occurs when we encounter an error while parsing an
-                -- | embedded message.
+                -- embedded message.
                 EmbeddedError Text
                               (Maybe ParseError)
     deriving (Show, Eq, Ord)
@@ -267,10 +267,7 @@ parse parser bs = case decodeWire bs of
     Right res -> runParser parser res
 
 -- | To comply with the protobuf spec, if there are multiple fields with the same
--- field number, this will always return the last one. While this is worst case
--- O(n), in practice the worst case will only happen when a field in the .proto
--- file has been changed from singular to repeated, but the deserializer hasn't
--- been made aware of the change.
+-- field number, this will always return the last one
 parsedField :: RawField -> Maybe RawPrimitive
 parsedField xs = case viewr xs of
     EmptyR -> Nothing
@@ -379,7 +376,7 @@ text = Parser $
 
 -- | Parse a primitive with an enumerated type.
 --
--- This parser will return 'Nothing' if the encoded integer value is outside the
+-- This parser will return 'Left' if the encoded integer value is outside the
 -- acceptable range of the 'Bounded' instance.
 enum :: forall e. (Enum e, Bounded e) => Parser RawPrimitive (Either Int e)
 enum = fmap toEither parseVarInt
