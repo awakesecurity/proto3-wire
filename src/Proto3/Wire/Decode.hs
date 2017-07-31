@@ -298,7 +298,7 @@ parseVarInt = Parser $
         VarintField i -> Right (fromIntegral i)
         wrong -> throwWireTypeError "varint" wrong
 
-runGetPacked :: Get [a] -> Parser RawPrimitive [a]
+runGetPacked :: Get a -> Parser RawPrimitive a
 runGetPacked g = Parser $
     \case
         LengthDelimitedField bs ->
