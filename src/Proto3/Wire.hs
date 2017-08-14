@@ -22,6 +22,7 @@ module Proto3.Wire
     , fieldNumber
       -- * Decoding Messages
     , at
+    , oneof
     , one
     , repeated
     ) where

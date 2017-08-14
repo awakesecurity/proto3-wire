@@ -15,6 +15,7 @@
 -}
 
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE LambdaCase #-}
 
 module Main where
 
@@ -22,6 +23,7 @@ import qualified Data.ByteString.Lazy  as BL
 import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
 import           Data.Monoid           ( (<>) )
+import           Data.Int
 import qualified Data.Text.Lazy        as T
 
 import           Proto3.Wire
@@ -48,6 +50,12 @@ main = do
 tests :: TestTree
 tests = testGroup "Tests" [ roundTripTests
                             , decodeNonsense ]
+
+data StringOrInt64 = TString T.Text | TInt64 Int64
+    deriving (Show,Eq)
+
+instance QC.Arbitrary StringOrInt64 where
+    arbitrary = QC.oneof [ TString . T.pack <$> QC.arbitrary, TInt64 <$> QC.arbitrary ]
 
 roundTripTests :: TestTree
 roundTripTests = testGroup "Roundtrip tests"
@@ -111,6 +119,16 @@ roundTripTests = testGroup "Roundtrip tests"
                                                 fieldNumber 1
                                             <*> one Decode.uint32 0 `at`
                                                 fieldNumber 2)
+                           , roundTrip "oneof"
+                                        (\case TString text -> Encode.text (fieldNumber 3) text
+                                               TInt64 i     -> Encode.int64 (fieldNumber 2) i)
+                                        (oneof [(fieldNumber 2, TInt64 <$> one Decode.int64 0)
+                                               ,(fieldNumber 3, TString <$> one Decode.text mempty)])
+                           , roundTrip "oneof-last"
+                                        (\case TString text -> Encode.text (fieldNumber 3) "something" <> Encode.text (fieldNumber 3) text
+                                               TInt64 i     -> Encode.int64 (fieldNumber 2) 20000000 <> Encode.int64 (fieldNumber 2) i)
+                                        (oneof [(fieldNumber 2, TInt64 <$> one Decode.int64 0)
+                                               ,(fieldNumber 3, TString <$> one Decode.text mempty)])
                            ]
 
 roundTrip :: (Show a, Eq a, Arbitrary a)

@@ -28,6 +28,7 @@
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PatternGuards              #-}
 {-# LANGUAGE ScopedTypeVariables        #-}
+{-# LANGUAGE TupleSections              #-}
 
 module Proto3.Wire.Decode
     ( -- * Untyped Representation
@@ -65,6 +66,7 @@ module Proto3.Wire.Decode
     , double
       -- * Decoding Messages
     , at
+    , oneof
     , one
     , repeated
     , embedded
@@ -73,7 +75,7 @@ module Proto3.Wire.Decode
 
 import           Control.Applicative
 import           Control.Exception       ( Exception )
-import           Control.Monad           ( unless )
+import           Control.Monad           ( unless, msum )
 import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
@@ -440,6 +442,26 @@ sfixed64 = runGetFixed64 getInt64le
 -- > one float `at` fieldNumber 1 :: Parser RawMessage (Maybe Float)
 at :: Parser RawField a -> FieldNumber -> Parser RawMessage a
 at parser fn = Parser $ runParser parser . fromMaybe mempty . M.lookup fn
+
+-- | Try to parse different field numbers with their respective parsers.
+-- This is used to express alternative between possible fields
+--
+-- If no field number are present for the oneof, then the default
+-- behavior of the first parser is used.
+--
+-- TODO: contrary to the protobuf spec, in the case of multiple fields number
+-- matching the oneof content, the choice of field is biased
+-- to the order of the list, instead of being biased to the last field
+-- of group of field number is the oneof. This is related to the Map
+-- used for input that preserve order across multiple invocation of the same
+-- field, but not across a group of field.
+oneof :: [(FieldNumber, Parser RawField a)] -> Parser RawMessage a
+oneof []                        = Parser $ const $
+    Left (BinaryError "invalid oneof with no field. oneof need to contains at least 1 element")
+oneof parsers@((_,defParser):_) = Parser $ \input ->
+    case msum $ map (\(fn, parser) -> (parser, ) <$> M.lookup fn input) parsers of
+        Nothing                -> runParser defParser mempty
+        Just (parser, content) -> runParser parser content
 
 -- | This turns a primitive parser into a field parser by keeping the
 -- last received value, or return a default value if the field number is missing.
