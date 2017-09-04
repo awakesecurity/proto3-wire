@@ -40,6 +40,7 @@ module Proto3.Wire.Decode
     , RawField
     , RawMessage
     , ParseError(..)
+    , foldFields
     , parse
       -- * Primitives
     , bool
@@ -75,7 +76,7 @@ module Proto3.Wire.Decode
 
 import           Control.Applicative
 import           Control.Exception       ( Exception )
-import           Control.Monad           ( unless, msum )
+import           Control.Monad           ( unless, msum, foldM )
 import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
@@ -173,12 +174,12 @@ getKeyVal = do
 --
 -- This is as much structure as we can recover without knowing the type of the
 -- message.
-getFields :: Get (M.Map FieldNumber (Seq ParsedField))
+getFields :: Get [(FieldNumber, ParsedField)]
 getFields = do
     keyvals <- many getKeyVal
     e <- isEmpty
     unless e $ fail "Encountered bytes that aren't valid key/value pairs."
-    return (toMap keyvals)
+    return keyvals
 
 -- | Convert key-value pairs to a map of keys to a sequence of values with that
 -- key, in their original occurrence order.
@@ -195,10 +196,10 @@ toMap kvs0 = M.fromList (Data.HashMap.Strict.toList hashMap)
     kvs1 = map (\(k, v) -> (k, Data.Sequence.singleton v)) kvs0
     hashMap = Data.HashMap.Strict.fromListWith (flip (<>)) kvs1
 
--- | Turns a raw protobuf message into a map from 'FieldNumber' to a list
--- of all 'ParsedField' values that are labeled with that number.
+-- | Turns a raw protobuf message into a list of 'FieldNumber' and the associated
+-- 'ParsedField' value.
 decodeWire :: B.ByteString
-           -> Either String (M.Map FieldNumber (Seq ParsedField))
+           -> Either String [(FieldNumber, ParsedField)]
 decodeWire = runGet getFields
 
 -- * Parser Interface
@@ -261,12 +262,26 @@ type RawField = Seq RawPrimitive
 -- that 'FieldNumber'.
 type RawMessage = M.Map FieldNumber RawField
 
+-- | Fold over a list of parsed fields accumulating a result
+foldFields :: M.Map FieldNumber (Parser RawPrimitive a, a -> acc -> acc)
+           -> acc
+           -> [(FieldNumber, ParsedField)]
+           -> Either ParseError acc
+foldFields parsers = foldM applyOne
+  where applyOne acc (fn, field) =
+            case M.lookup fn parsers of
+                Nothing              -> pure acc
+                Just (parser, apply) ->
+                    case runParser parser field of
+                        Left err -> Left err
+                        Right a  -> pure $ apply a acc
+
 -- | Parse a message (encoded in the raw wire format) using the specified
 -- `Parser`.
 parse :: Parser RawMessage a -> B.ByteString -> Either ParseError a
 parse parser bs = case decodeWire bs of
     Left err -> Left (BinaryError (pack err))
-    Right res -> runParser parser res
+    Right res -> runParser parser (toMap res)
 
 -- | To comply with the protobuf spec, if there are multiple fields with the same
 -- field number, this will always return the last one.
@@ -502,7 +517,7 @@ embeddedToParsedFields (LengthDelimitedField bs) =
         Left err -> Left (EmbeddedError ("Failed to parse embedded message: "
                                              <> (pack err))
                                         Nothing)
-        Right result -> return result
+        Right result -> return (toMap result)
 embeddedToParsedFields wrong =
     throwWireTypeError "embedded" wrong
 
