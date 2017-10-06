@@ -458,25 +458,26 @@ sfixed64 = runGetFixed64 getInt64le
 at :: Parser RawField a -> FieldNumber -> Parser RawMessage a
 at parser fn = Parser $ runParser parser . fromMaybe mempty . M.lookup fn
 
--- | Try to parse different field numbers with their respective parsers.
--- This is used to express alternative between possible fields
---
--- If no field number are present for the oneof, then the default
--- behavior of the first parser is used.
+-- | Try to parse different field numbers with their respective parsers. This is
+-- used to express alternative between possible fields of a oneof .
 --
 -- TODO: contrary to the protobuf spec, in the case of multiple fields number
--- matching the oneof content, the choice of field is biased
--- to the order of the list, instead of being biased to the last field
--- of group of field number is the oneof. This is related to the Map
--- used for input that preserve order across multiple invocation of the same
--- field, but not across a group of field.
-oneof :: [(FieldNumber, Parser RawField a)] -> Parser RawMessage a
-oneof []                        = Parser $ const $
-    Left (BinaryError "invalid oneof with no field. oneof need to contains at least 1 element")
-oneof parsers@((_,defParser):_) = Parser $ \input ->
-    case msum $ map (\(fn, parser) -> (parser, ) <$> M.lookup fn input) parsers of
-        Nothing                -> runParser defParser mempty
-        Just (parser, content) -> runParser parser content
+-- matching the oneof content, the choice of field is biased to the order of the
+-- list, instead of being biased to the last field of group of field number in
+-- the oneof. This is related to the Map used for input that preserve order
+-- across multiple invocation of the same field, but not across a group of
+-- field.
+oneof :: a
+         -- ^ The value to produce when no field numbers belonging to the oneof
+         -- are present in the input
+      -> [(FieldNumber, Parser RawField a)]
+         -- ^ Left-biased subfield parsers, one per field number belonging to
+         -- the oneof
+      -> Parser RawMessage a
+oneof def parsersByFieldNum = Parser $ \input ->
+  case msum $ (\(num,p) -> (p,) <$> M.lookup num input) <$> parsersByFieldNum of
+    Nothing     -> pure def
+    Just (p, v) -> runParser p v
 
 -- | This turns a primitive parser into a field parser by keeping the
 -- last received value, or return a default value if the field number is missing.
