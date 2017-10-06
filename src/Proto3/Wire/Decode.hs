@@ -459,7 +459,7 @@ at :: Parser RawField a -> FieldNumber -> Parser RawMessage a
 at parser fn = Parser $ runParser parser . fromMaybe mempty . M.lookup fn
 
 -- | Try to parse different field numbers with their respective parsers. This is
--- used to express alternative between possible fields of a oneof .
+-- used to express alternative between possible fields of a oneof.
 --
 -- TODO: contrary to the protobuf spec, in the case of multiple fields number
 -- matching the oneof content, the choice of field is biased to the order of the
@@ -471,11 +471,11 @@ oneof :: a
          -- ^ The value to produce when no field numbers belonging to the oneof
          -- are present in the input
       -> [(FieldNumber, Parser RawField a)]
-         -- ^ Left-biased subfield parsers, one per field number belonging to
+         -- ^ Left-biased oneof field parsers, one per field number belonging to
          -- the oneof
       -> Parser RawMessage a
 oneof def parsersByFieldNum = Parser $ \input ->
-  case msum $ (\(num,p) -> (p,) <$> M.lookup num input) <$> parsersByFieldNum of
+  case msum ((\(num,p) -> (p,) <$> M.lookup num input) <$> parsersByFieldNum) of
     Nothing     -> pure def
     Just (p, v) -> runParser p v
 
