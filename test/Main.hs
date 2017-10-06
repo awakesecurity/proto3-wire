@@ -120,15 +120,26 @@ roundTripTests = testGroup "Roundtrip tests"
                                             <*> one Decode.uint32 0 `at`
                                                 fieldNumber 2)
                            , roundTrip "oneof"
-                                        (\case TString text -> Encode.text (fieldNumber 3) text
-                                               TInt64 i     -> Encode.int64 (fieldNumber 2) i)
-                                        (oneof [(fieldNumber 2, TInt64 <$> one Decode.int64 0)
-                                               ,(fieldNumber 3, TString <$> one Decode.text mempty)])
+                                        (\case Just (TString text) -> Encode.text (fieldNumber 3) text
+                                               Just (TInt64 i)     -> Encode.int64 (fieldNumber 2) i
+                                               Nothing             -> mempty
+                                        )
+                                        (oneof Nothing
+                                               [ (fieldNumber 2, Just . TInt64  <$> one Decode.int64 0)
+                                               , (fieldNumber 3, Just . TString <$> one Decode.text mempty)
+                                               ]
+                                        )
                            , roundTrip "oneof-last"
-                                        (\case TString text -> Encode.text (fieldNumber 3) "something" <> Encode.text (fieldNumber 3) text
-                                               TInt64 i     -> Encode.int64 (fieldNumber 2) 20000000 <> Encode.int64 (fieldNumber 2) i)
-                                        (oneof [(fieldNumber 2, TInt64 <$> one Decode.int64 0)
-                                               ,(fieldNumber 3, TString <$> one Decode.text mempty)])
+                                        (\case Just (TString text) -> Encode.text (fieldNumber 3) "something" <> Encode.text (fieldNumber 3) text
+                                               Just (TInt64 i)     -> Encode.int64 (fieldNumber 2) 20000000 <> Encode.int64 (fieldNumber 2) i
+                                               Nothing             -> mempty
+                                        )
+                                        (oneof Nothing
+                                               [ (fieldNumber 2, Just . TInt64  <$> one Decode.int64 0)
+                                               , (fieldNumber 3, Just . TString <$> one Decode.text mempty)
+                                               ]
+                                        )
+
                            ]
 
 roundTrip :: (Show a, Eq a, Arbitrary a)
