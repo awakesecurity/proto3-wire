@@ -19,7 +19,9 @@
 
 module Main where
 
+import qualified Data.ByteString       as B
 import qualified Data.ByteString.Lazy  as BL
+import qualified Data.ByteString.Builder.Internal as BBI
 import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
 import           Data.Monoid           ( (<>) )
@@ -27,6 +29,7 @@ import           Data.Int
 import qualified Data.Text.Lazy        as T
 
 import           Proto3.Wire
+import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Encode    as Encode
 import qualified Proto3.Wire.Decode    as Decode
 
@@ -49,7 +52,9 @@ main = do
 
 tests :: TestTree
 tests = testGroup "Tests" [ roundTripTests
-                            , decodeNonsense ]
+                          , buildSingleChunk
+                          , decodeNonsense
+                          ]
 
 data StringOrInt64 = TString T.Text | TInt64 Int64
     deriving (Show,Eq)
@@ -154,6 +159,19 @@ roundTrip name encode decode =
             case Decode.parse decode (BL.toStrict bytes) of
                 Left _ -> error "Could not decode encoded message"
                 Right x' -> x === x'
+
+buildSingleChunk :: TestTree
+buildSingleChunk = HU.testCase "Builder creates a single chunk" $ do
+  let chunks = length . BL.toChunks . Builder.toLazyByteString
+
+      huge = B.replicate (BBI.maximalCopySize + 16) 1
+      huge2 = Builder.byteString huge <> Builder.byteString huge
+
+      hugeL = BL.fromChunks [huge, huge]
+      hugeL2 = Builder.lazyByteString hugeL <> Builder.lazyByteString hugeL
+
+  HU.assertBool "single chunk (strict)" $ chunks huge2 == 1
+  HU.assertBool "single chunk (lazy)" $ chunks hugeL2 == 1
 
 decodeNonsense :: TestTree
 decodeNonsense = HU.testCase "Decoding a nonsensical string fails." $ do

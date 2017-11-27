@@ -178,7 +178,21 @@ hPutBuilder handle = BB.hPutBuilder handle . snd . unBuilder
 -- >>> byteString "ABC"
 -- Proto3.Wire.Builder.lazyByteString "ABC"
 byteString :: B.ByteString -> Builder
-byteString bs = Builder (Sum (fromIntegral (B.length bs)), BB.byteString bs)
+byteString bs =
+  Builder (Sum (fromIntegral (B.length bs)), BB.byteStringCopy bs)
+    -- NOTE: We want 'toLazyByteString' to produce a single chunk (unless
+    -- incorrect uses of 'unsafeMakeBuilder' sabotage the length prediction).
+    --
+    -- To that end, 'toLazyByteString' allocates a first chunk of exactly the
+    -- builder length.  That length should be accurate unless there is a bug,
+    -- either within this library or in some arguments to 'unsafeMakeBuilder'.
+    --
+    -- If the given 'bs :: B.ByteString' is longer than a certain threshold,
+    -- then passing it to 'BB.byteString' would produce a builder that closes
+    -- the current chunk and appends 'bs' as its own chunk, without copying.
+    -- That would waste some of the chunk allocated by 'toLazyByteString'.
+    --
+    -- Therefore we force copying of 'bs' by using 'BB.byteStringCopy' here.
 
 -- | Convert a lazy `BL.ByteString` to a `Builder`
 --
@@ -197,7 +211,10 @@ byteString bs = Builder (Sum (fromIntegral (B.length bs)), BB.byteString bs)
 -- Proto3.Wire.Builder.lazyByteString "ABC"
 lazyByteString :: BL.ByteString -> Builder
 lazyByteString bl =
-  Builder (Sum (fromIntegral (BL.length bl)), BB.lazyByteString bl)
+  Builder (Sum (fromIntegral (BL.length bl)), BB.lazyByteStringCopy bl)
+    -- NOTE: We use 'BB.lazyByteStringCopy' here for the same reason
+    -- that 'byteString' uses 'BB.byteStringCopy'.  For the rationale,
+    -- please see the comments in the implementation of 'byteString'.
 
 -- | Convert a `BS.ShortByteString` to a `Builder`
 --
