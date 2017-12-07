@@ -1,0 +1,24 @@
+{ "enabled": 1
+, "hidden": false
+, "description": "proto3-wire pull requests"
+, "nixexprinput": "proto3-wire"
+, "nixexprpath": "nix/project.nix"
+, "checkinterval": "10"
+, "schedulingshares": 1
+, "enableemail": false
+, "emailoverride": ""
+, "keepnr": 3
+, "inputs": { "nixpkgs": { "type": "git"
+                         , "value": "https://github.com/NixOS/nixpkgs.git 7ae9da426924537755ce9164fd5b5f81ce16a1c3"
+                         , "emailresponsible": false
+                         }
+            , "proto3-wire": { "type": "git"
+                             , "value": "https://github.com/awakesecurity/proto3-wire.git"
+                             , "emailresponsible": false
+                             }
+            , "prsJSON": { "type": "githubpulls"
+                         , "value": "awakesecurity proto3-wire"
+                         , "emailresponsible": false
+                         }
+            }
+}
