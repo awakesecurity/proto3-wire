@@ -15,7 +15,7 @@
           keepnr = 3;
           inputs =
             { src = { type = "git"; value = "https://github.com/${info.head.repo.owner.login}/${info.head.repo.name}.git ${info.head.ref}"; emailresponsible = false; };
-              nixpkgs = { type = "git"; value = "https://github.com/NixOS/nixpkgs.git 7ae9da426924537755ce9164fd5b5f81ce16a1c3"; };
+              nixpkgs = { type = "git"; value = "https://github.com/NixOS/nixpkgs.git 7ae9da426924537755ce9164fd5b5f81ce16a1c3"; emailresponsible = false; };
             };
         }
       ) prs;
