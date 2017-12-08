@@ -3,7 +3,7 @@
 , "description": "proto3-wire pull requests"
 , "nixexprinput": "proto3-wire"
 , "nixexprpath": "nix/project.nix"
-, "checkinterval": "10"
+, "checkinterval": "300"
 , "schedulingshares": 1
 , "enableemail": false
 , "emailoverride": ""
