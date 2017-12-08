@@ -4,7 +4,6 @@
       jobsets = pkgs.lib.mapAttrs (num: info:
         { enabled = 1;
           hidden = false;
-          identifier = "PR-${num}";
           description = "PR ${num}: ${info.title}";
           nixexprinput = "src";
           nixexprpath = "release.nix";
