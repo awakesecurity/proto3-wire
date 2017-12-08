@@ -13,7 +13,7 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 -}
- 
+  
 -- | See the "Proto3.Wire.Tutorial" module.
 
 module Proto3.Wire
