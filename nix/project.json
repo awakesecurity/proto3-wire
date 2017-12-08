@@ -13,7 +13,7 @@
                          , "emailresponsible": false
                          }
             , "proto3-wire": { "type": "git"
-                             , "value": "https://github.com/awakesecurity/proto3-wire.git"
+                             , "value": "https://github.com/awakesecurity/proto3-wire.git gabriel/hydra-pr"
                              , "emailresponsible": false
                              }
             , "prsJSON": { "type": "githubpulls"
