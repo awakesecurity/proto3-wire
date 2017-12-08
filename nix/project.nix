@@ -8,7 +8,7 @@
           description = "PR ${num}: ${info.title}";
           nixexprinput = "src";
           nixexprpath = "release.nix";
-          checkinterval = 10;
+          checkinterval = 300;
           schedulingshares = 1;
           enableemail = true;
           emailoverride = "hydra@awakenetworks.com";
