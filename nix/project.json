@@ -17,7 +17,7 @@
                              , "emailresponsible": false
                              }
             , "prsJSON": { "type": "githubpulls"
-                         , "value": "awakesecurity proto3-wire"
+                         , "value": "awakesecurity proto3-wire api.github.com"
                          , "emailresponsible": false
                          }
             }
