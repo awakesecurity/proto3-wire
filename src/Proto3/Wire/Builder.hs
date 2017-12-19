@@ -76,27 +76,27 @@ import qualified Data.ByteString.Lazy          as BL
 import qualified Data.ByteString.Short         as BS
 import           Data.Char                     ( ord )
 import           Data.Int                      ( Int8, Int16, Int32, Int64 )
-import           Data.Monoid                   ( Sum(..) )
+import           Data.Semigroup                ( Semigroup(..), Sum(..) )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           System.IO                     ( Handle )
 
 -- $setup
 -- >>> :set -XOverloadedStrings
--- >>> import Data.Monoid
+-- >>> import Data.Semigroup
 
 -- | A `Builder` is like a @"Data.ByteString.Builder".`BB.Builder`@, but also
 -- memoizes the resulting length so that we can efficiently encode nested
 -- embedded messages.
 --
 -- You create a `Builder` by using one of the primitives provided in the
--- \"Create `Builder`s\" section
+-- \"Create `Builder`s\" section.
 --
--- You combine `Builder`s using the `Monoid` instance
+-- You combine `Builder`s using the `Monoid` and `Semigroup` instances.
 --
 -- You consume a `Builder` by using one of the utilities provided in the
--- \"Consume `Builder`s\" section
+-- \"Consume `Builder`s\" section.
 newtype Builder = Builder { unBuilder :: (Sum Word, BB.Builder) }
-  deriving Monoid
+  deriving (Monoid, Semigroup)
 
 instance Show Builder where
   showsPrec prec builder =
