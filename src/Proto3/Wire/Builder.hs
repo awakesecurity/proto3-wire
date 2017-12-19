@@ -23,7 +23,6 @@
 -- [0,0,0,42,206,187]
 
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE CPP #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Proto3.Wire.Builder
@@ -77,22 +76,13 @@ import qualified Data.ByteString.Lazy          as BL
 import qualified Data.ByteString.Short         as BS
 import           Data.Char                     ( ord )
 import           Data.Int                      ( Int8, Int16, Int32, Int64 )
+import           Data.Semigroup                ( Semigroup(..), Sum(..) )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           System.IO                     ( Handle )
 
-#if MIN_VERSION_base(4,9,0)
-import           Data.Semigroup                ( Semigroup(..), Sum(..) )
-#else
-import           Data.Monoid                   ( Sum(..) )
-#endif
-
 -- $setup
 -- >>> :set -XOverloadedStrings
-#if MIN_VERSION_base(4,9,0)
 -- >>> import Data.Semigroup
-#else
--- >>> import Data.Monoid
-#endif
 
 -- | A `Builder` is like a @"Data.ByteString.Builder".`BB.Builder`@, but also
 -- memoizes the resulting length so that we can efficiently encode nested
@@ -101,8 +91,7 @@ import           Data.Monoid                   ( Sum(..) )
 -- You create a `Builder` by using one of the primitives provided in the
 -- \"Create `Builder`s\" section.
 --
--- You combine `Builder`s using the `Monoid` instance.  (With versions
--- of @base@ that provide `Semigroup`, you may use that type class also.)
+-- You combine `Builder`s using the `Monoid` and `Semigroup` instances.
 --
 -- You consume a `Builder` by using one of the utilities provided in the
 -- \"Consume `Builder`s\" section.
