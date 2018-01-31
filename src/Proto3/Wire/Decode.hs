@@ -34,7 +34,9 @@ module Proto3.Wire.Decode
     ( -- * Untyped Representation
       ParsedField(..)
     , decodeWire
+    , decodeWirePartial
       -- * Parser Types
+    , Result
     , Parser(..)
     , RawPrimitive
     , RawField
@@ -42,6 +44,7 @@ module Proto3.Wire.Decode
     , ParseError(..)
     , foldFields
     , parse
+    , parsePartial
       -- * Primitives
     , bool
     , int32
@@ -88,9 +91,11 @@ import           Data.Maybe              ( fromMaybe )
 import           Data.Monoid             ( (<>) )
 import           Data.Sequence           ( Seq, ViewR(..), fromList, viewr )
 import qualified Data.Sequence
-import           Data.Serialize.Get      ( Get, getWord8, getByteString, getInt32le
+import           Data.Serialize.Get      ( Get
+                                         , getWord8, getByteString, getInt32le
                                          , getInt64le, getWord32le, getWord64le
-                                         , runGet , isEmpty )
+                                         , runGet, runGetPartial, isEmpty )
+import qualified Data.Serialize.Get      as Get
 import           Data.Serialize.IEEE754  ( getFloat32le, getFloat64le )
 import           Data.Text.Lazy          ( Text, pack )
 import           Data.Text.Lazy.Encoding ( decodeUtf8' )
@@ -202,6 +207,28 @@ decodeWire :: B.ByteString
            -> Either String [(FieldNumber, ParsedField)]
 decodeWire = runGet getFields
 
+-- | Like 'decodeWire', but you may submit a prefix of the input, then append
+-- more input as it becomes available to resolve incomplete parse results.
+decodeWirePartial :: B.ByteString
+                  -> Result String [(FieldNumber, ParsedField)]
+decodeWirePartial = repackage . runGetPartial getFields
+  where
+    repackage = \case
+      Get.Fail e bs -> Fail e bs
+      Get.Partial k -> Partial (repackage . k)
+      Get.Done r bs -> Done r bs
+
+data Result e r
+  = Fail e B.ByteString
+      -- ^ Parse failure as described by 'e', along with the unconsumed input.
+  | Partial (B.ByteString -> Result e r)
+      -- ^ Parsing cannot complete until more is known about the input.
+      -- Apply the continuation to the next chunk of input.  Applying
+      -- the continuation to the empty string terminates the input.
+  | Done r B.ByteString
+      -- ^ Parse success with the given value, along with the unconsumed input.
+  deriving Functor
+
 -- * Parser Interface
 
 -- | Type describing possible errors that can be encountered while parsing.
@@ -282,6 +309,18 @@ parse :: Parser RawMessage a -> B.ByteString -> Either ParseError a
 parse parser bs = case decodeWire bs of
     Left err -> Left (BinaryError (pack err))
     Right res -> runParser parser (toMap res)
+
+-- | Like 'parse', but you may submit a prefix of the input, then append
+-- more input as it becomes available to resolve incomplete parse results.
+parsePartial :: Parser RawMessage a -> B.ByteString -> Result ParseError a
+parsePartial parser = postprocess . decodeWirePartial
+  where
+    postprocess = \case
+        Fail err bs -> Fail (BinaryError (pack err)) bs
+        Partial k -> Partial (postprocess . k)
+        Done res bs -> case runParser parser (toMap res) of
+            Left err -> Fail err bs
+            Right a -> Done a bs
 
 -- | To comply with the protobuf spec, if there are multiple fields with the same
 -- field number, this will always return the last one.
