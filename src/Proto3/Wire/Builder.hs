@@ -41,6 +41,7 @@ module Proto3.Wire.Builder
     , word32LE
     , word64BE
     , word64LE
+    , word64Base128LEVar
     , int8
     , int16BE
     , int16LE
@@ -69,6 +70,7 @@ module Proto3.Wire.Builder
     , unsafeMakeBuilder
     ) where
 
+import           Data.Bits                     ((.|.), shiftR)
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Builder       as BB
 import qualified Data.ByteString.Builder.Extra as BB
@@ -368,6 +370,25 @@ word64BE w = Builder (Sum 8, BB.word64BE w)
 -- [42,0,0,0,0,0,0,0]
 word64LE :: Word64 -> Builder
 word64LE w = Builder (Sum 8, BB.word64LE w)
+
+-- | Convert a `Word64` to a `Builder` using this variable-length encoding:
+--
+--   1. Convert the given value to a base 128 representation
+--   without unnecessary digits (that is, omit zero digits
+--   unless they are less significant than nonzero digits).
+--
+--   2. Present those base-128 digits in order of increasing
+--   significance (that is, in little-endian order).
+--
+--   3. Add 128 to every digit except the most significant digit,
+--   yielding a sequence of octets terminated by one that is <= 127.
+--
+-- This encoding is used in the wire format of Protocol Buffers version 3.
+word64Base128LEVar :: Word64 -> Builder
+word64Base128LEVar i
+    | i <= 0x7f = word8 (fromIntegral i)
+    | otherwise = word8 (fromIntegral (0x80 .|. i)) <>
+          word64Base128LEVar (i `shiftR` 7)
 
 -- | Convert an `Int64` to a `Builder` by storing the bytes in big-endian order
 --
