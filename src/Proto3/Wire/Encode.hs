@@ -138,10 +138,7 @@ unsafeFromLazyByteString bytes' =
     MessageBuilder { unMessageBuilder = WB.lazyByteString bytes' }
 
 base128Varint :: Word64 -> MessageBuilder
-base128Varint i
-    | i <= 0x7f = MessageBuilder (WB.word8 (fromIntegral i))
-    | otherwise = MessageBuilder (WB.word8 (fromIntegral (0x80 .|. i))) <>
-          base128Varint (i `shiftR` 7)
+base128Varint = MessageBuilder . WB.word64Base128LEVar
 
 wireType :: WireType -> Word8
 wireType Varint = 0
