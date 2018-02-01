@@ -44,6 +44,7 @@ module Proto3.Wire.Encode
     ( -- * `MessageBuilder` type
       MessageBuilder
     , messageLength
+    , sizedMessageBuilder
     , rawMessageBuilder
     , toLazyByteString
     , unsafeFromLazyByteString
@@ -119,6 +120,10 @@ instance Show MessageBuilder where
 -- | Retrieve the length of a message, in bytes
 messageLength :: MessageBuilder -> Word
 messageLength = WB.builderLength . unMessageBuilder
+
+-- | Convert a message to a @"Proto3.Wire.Builder".`WB.Builder`@
+sizedMessageBuilder :: MessageBuilder -> WB.Builder
+sizedMessageBuilder = unMessageBuilder
 
 -- | Convert a message to a @"Data.ByteString.Builder".`BB.Builder`@
 rawMessageBuilder :: MessageBuilder -> BB.Builder
