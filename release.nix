@@ -1,4 +1,4 @@
-{ compiler ? "ghc841" }:
+{ compiler ? "ghc822" }:
 
 let
   fetchNixpkgs = import ./nix/fetchNixpkgs.nix;
