@@ -88,7 +88,7 @@ import           Data.Maybe              ( fromMaybe )
 import           Data.Monoid             ( (<>) )
 import           Data.Sequence           ( Seq, ViewR(..), fromList, viewr )
 import qualified Data.Sequence
-import           Data.Serialize.Get      ( Get, getWord8, getByteString, getInt32le
+import           Data.Serialize.Get      ( Get, getWord8, getBytes, getInt32le
                                          , getInt64le, getWord32le, getWord64le
                                          , runGet , isEmpty )
 import           Data.Serialize.IEEE754  ( getFloat32le, getFloat64le )
@@ -147,15 +147,15 @@ data ParsedField = VarintField Word64
 
 -- | Parse a length-delimited field.
 getLengthDelimited :: Get B.ByteString
-getLengthDelimited = getBase128Varint >>= (getByteString . fromIntegral)
+getLengthDelimited = getBase128Varint >>= (getBytes . fromIntegral)
 
 -- | Parse a field based on its 'WireType'.
 getParsedField :: WireType -> Get ParsedField
 getParsedField Varint = VarintField <$> getBase128Varint
 getParsedField Fixed32 =
-    Fixed32Field <$> getByteString 4
+    Fixed32Field <$> getBytes 4
 getParsedField Fixed64 =
-    Fixed64Field <$> getByteString 8
+    Fixed64Field <$> getBytes 8
 getParsedField LengthDelimited =
     LengthDelimitedField <$> getLengthDelimited
 
@@ -341,7 +341,7 @@ bytes :: Parser RawPrimitive B.ByteString
 bytes = Parser $
     \case
         LengthDelimitedField bs ->
-            return bs
+            return $! B.copy bs
         wrong -> throwWireTypeError "bytes" wrong
 
 -- | Parse a Boolean value.
