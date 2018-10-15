@@ -390,10 +390,31 @@ word64LE w = Builder (Sum 8) (BB.word64LE w)
 --
 -- This encoding is used in the wire format of Protocol Buffers version 3.
 word64Base128LEVar :: Word64 -> Builder
-word64Base128LEVar i
-    | i <= 0x7f = word8 (fromIntegral i)
-    | otherwise = word8 (fromIntegral (0x80 .|. i)) <>
+
+{-
+word64Base128LEVar !i
+    | i < 0x80 = word8 (fromIntegral i)
+    | otherwise = word8 (fromIntegral i .|. 0x80) <>
           word64Base128LEVar (i `shiftR` 7)
+-}
+
+{-
+
+Prelude Data.Bits> map bit $ take 11 [0,7..]
+[1,128,16384,2097152,268435456,34359738368,4398046511104,562949953421312,72057594037927936,9223372036854775808,1180591620717411303424]
+
+-}
+word64Base128LEVar i =
+    if      i < 128 then word8 (fromIntegral i)
+    else if i < 16384 then Builder (Sum 2) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7)))
+    else if i < 2097152 then Builder (Sum 3) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14)))
+    else if i < 268435456 then Builder (Sum 4) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 21)))
+    else if i < 34359738368 then Builder (Sum 5) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 21) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 28)))
+    else if i < 4398046511104 then Builder (Sum 6) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 21) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 28) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 35)))
+    else if i < 562949953421312 then Builder (Sum 7) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 21) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 28) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 35 .|. 0x80)) <> BB.word8 (fromIntegral (i `shiftR` 42)))
+    else if i < 72057594037927936 then Builder (Sum 8) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 21) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 28) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 35 .|. 0x80)) <> BB.word8 (fromIntegral (i `shiftR` 42) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 49)))
+    else if i < 9223372036854775808 then Builder (Sum 9) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 21) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 28) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 35 .|. 0x80)) <> BB.word8 (fromIntegral (i `shiftR` 42) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 49) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 56)))
+    else                                Builder (Sum 10) (BB.word8 (fromIntegral i .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 7) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 14) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 21) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 28) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 35 .|. 0x80)) <> BB.word8 (fromIntegral (i `shiftR` 42) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 49) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 56) .|. 0x80) <> BB.word8 (fromIntegral (i `shiftR` 63)))
 
 -- | Convert an `Int64` to a `Builder` by storing the bytes in big-endian order
 --
