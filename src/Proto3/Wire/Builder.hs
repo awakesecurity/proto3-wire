@@ -97,7 +97,7 @@ import           System.IO                     ( Handle )
 --
 -- You consume a `Builder` by using one of the utilities provided in the
 -- \"Consume `Builder`s\" section.
-data Builder = Builder !(Sum Word) !BB.Builder
+data Builder = Builder {-# UNPACK #-} !(Sum Word) BB.Builder
 
 instance Semigroup Builder where
 
