@@ -97,8 +97,13 @@ import           System.IO                     ( Handle )
 --
 -- You consume a `Builder` by using one of the utilities provided in the
 -- \"Consume `Builder`s\" section.
-newtype Builder = Builder { unBuilder :: (Sum Word, BB.Builder) }
-  deriving (Monoid, Semigroup)
+data Builder = Builder !(Sum Word) !BB.Builder
+
+instance Semigroup Builder where
+
+instance Monoid Builder where
+  mempty = Builder mempty mempty
+  mappend (Builder s b) (Builder s1 b1) = Builder (s <> s1) (b <> b1)
 
 instance Show Builder where
   showsPrec prec builder =
@@ -118,7 +123,7 @@ instance Show Builder where
 -- >>> builderLength (stringUtf8 "ABC")
 -- 3
 builderLength :: Builder -> Word
-builderLength = getSum . fst . unBuilder
+builderLength (Builder x _) = getSum x
 
 -- | Retrieve the underlying @"Data.ByteString.Builder".`BB.Builder`@
 --
@@ -129,7 +134,7 @@ builderLength = getSum . fst . unBuilder
 -- >>> Data.ByteString.Builder.toLazyByteString (rawBuilder (stringUtf8 "ABC"))
 -- "ABC"
 rawBuilder :: Builder -> BB.Builder
-rawBuilder = snd . unBuilder
+rawBuilder (Builder _ x) = x
 
 -- | Create a `Builder` from a @"Data.ByteString.Builder".`BB.Builder`@ and a
 -- length.  This is unsafe because you are responsible for ensuring that the
@@ -139,7 +144,7 @@ rawBuilder = snd . unBuilder
 -- >>> unsafeMakeBuilder 3 (Data.ByteString.Builder.stringUtf8 "ABC")
 -- Proto3.Wire.Builder.lazyByteString "ABC"
 unsafeMakeBuilder :: Word -> BB.Builder -> Builder
-unsafeMakeBuilder len bldr = Builder (Sum len, bldr)
+unsafeMakeBuilder len bldr = Builder (Sum len) bldr
 
 -- | Create a lazy `BL.ByteString` from a `Builder`
 --
@@ -150,7 +155,7 @@ unsafeMakeBuilder len bldr = Builder (Sum len, bldr)
 -- >>> toLazyByteString (stringUtf8 "ABC")
 -- "ABC"
 toLazyByteString :: Builder -> BL.ByteString
-toLazyByteString (Builder (Sum len, bb)) =
+toLazyByteString (Builder (Sum len) bb) =
     BB.toLazyByteStringWith strat BL.empty bb
   where
     -- If the supplied length is accurate then we will perform just
@@ -169,7 +174,7 @@ toLazyByteString (Builder (Sum len, bb)) =
 -- >>> hPutBuilder System.IO.stdout (stringUtf8 "ABC\n")
 -- ABC
 hPutBuilder :: Handle -> Builder -> IO ()
-hPutBuilder handle = BB.hPutBuilder handle . snd . unBuilder
+hPutBuilder handle = BB.hPutBuilder handle . rawBuilder
 
 -- | Convert a strict `B.ByteString` to a `Builder`
 --
@@ -181,7 +186,7 @@ hPutBuilder handle = BB.hPutBuilder handle . snd . unBuilder
 -- Proto3.Wire.Builder.lazyByteString "ABC"
 byteString :: B.ByteString -> Builder
 byteString bs =
-  Builder (Sum (fromIntegral (B.length bs)), BB.byteStringCopy bs)
+  Builder (Sum (fromIntegral (B.length bs))) (BB.byteStringCopy bs)
     -- NOTE: We want 'toLazyByteString' to produce a single chunk (unless
     -- incorrect uses of 'unsafeMakeBuilder' sabotage the length prediction).
     --
@@ -213,7 +218,7 @@ byteString bs =
 -- Proto3.Wire.Builder.lazyByteString "ABC"
 lazyByteString :: BL.ByteString -> Builder
 lazyByteString bl =
-  Builder (Sum (fromIntegral (BL.length bl)), BB.lazyByteStringCopy bl)
+  Builder (Sum (fromIntegral (BL.length bl))) (BB.lazyByteStringCopy bl)
     -- NOTE: We use 'BB.lazyByteStringCopy' here for the same reason
     -- that 'byteString' uses 'BB.byteStringCopy'.  For the rationale,
     -- please see the comments in the implementation of 'byteString'.
@@ -228,21 +233,21 @@ lazyByteString bl =
 -- Proto3.Wire.Builder.lazyByteString "ABC"
 shortByteString :: BS.ShortByteString -> Builder
 shortByteString bs =
-  Builder (Sum (fromIntegral (BS.length bs)), BB.shortByteString bs)
+  Builder (Sum (fromIntegral (BS.length bs))) (BB.shortByteString bs)
 
 -- | Convert a `Word8` to a `Builder`
 --
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word8 42))
 -- [42]
 word8 :: Word8 -> Builder
-word8 w = Builder (Sum 1, BB.word8 w)
+word8 w = Builder (Sum 1) (BB.word8 w)
 
 -- | Convert a `Int8` to a `Builder`
 --
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int8 (-5)))
 -- [251]
 int8 :: Int8 -> Builder
-int8 w = Builder (Sum 1, BB.int8 w)
+int8 w = Builder (Sum 1) (BB.int8 w)
 
 -- | Convert a `Word16` to a `Builder` by storing the bytes in big-endian order
 --
@@ -252,7 +257,7 @@ int8 w = Builder (Sum 1, BB.int8 w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word16BE 42))
 -- [0,42]
 word16BE :: Word16 -> Builder
-word16BE w = Builder (Sum 2, BB.word16BE w)
+word16BE w = Builder (Sum 2) (BB.word16BE w)
 
 -- | Convert a `Word16` to a `Builder` by storing the bytes in little-endian
 -- order
@@ -263,7 +268,7 @@ word16BE w = Builder (Sum 2, BB.word16BE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word16LE 42))
 -- [42,0]
 word16LE :: Word16 -> Builder
-word16LE w = Builder (Sum 2, BB.word16LE w)
+word16LE w = Builder (Sum 2) (BB.word16LE w)
 
 -- | Convert an `Int16` to a `Builder` by storing the bytes in big-endian order
 --
@@ -273,7 +278,7 @@ word16LE w = Builder (Sum 2, BB.word16LE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int16BE (-5)))
 -- [255,251]
 int16BE :: Int16 -> Builder
-int16BE w = Builder (Sum 2, BB.int16BE w)
+int16BE w = Builder (Sum 2) (BB.int16BE w)
 
 -- | Convert an `Int16` to a `Builder` by storing the bytes in little-endian
 -- order
@@ -284,7 +289,7 @@ int16BE w = Builder (Sum 2, BB.int16BE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int16LE (-5)))
 -- [251,255]
 int16LE :: Int16 -> Builder
-int16LE w = Builder (Sum 2, BB.int16LE w)
+int16LE w = Builder (Sum 2) (BB.int16LE w)
 
 -- | Convert a `Word32` to a `Builder` by storing the bytes in big-endian order
 --
@@ -294,7 +299,7 @@ int16LE w = Builder (Sum 2, BB.int16LE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word32BE 42))
 -- [0,0,0,42]
 word32BE :: Word32 -> Builder
-word32BE w = Builder (Sum 4, BB.word32BE w)
+word32BE w = Builder (Sum 4) (BB.word32BE w)
 
 -- | Convert a `Word32` to a `Builder` by storing the bytes in little-endian
 -- order
@@ -305,7 +310,7 @@ word32BE w = Builder (Sum 4, BB.word32BE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word32LE 42))
 -- [42,0,0,0]
 word32LE :: Word32 -> Builder
-word32LE w = Builder (Sum 4, BB.word32LE w)
+word32LE w = Builder (Sum 4) (BB.word32LE w)
 
 -- | Convert an `Int32` to a `Builder` by storing the bytes in big-endian order
 --
@@ -315,7 +320,7 @@ word32LE w = Builder (Sum 4, BB.word32LE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int32BE (-5)))
 -- [255,255,255,251]
 int32BE :: Int32 -> Builder
-int32BE w = Builder (Sum 4, BB.int32BE w)
+int32BE w = Builder (Sum 4) (BB.int32BE w)
 
 -- | Convert an `Int32` to a `Builder` by storing the bytes in little-endian
 -- order
@@ -326,7 +331,7 @@ int32BE w = Builder (Sum 4, BB.int32BE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int32LE (-5)))
 -- [251,255,255,255]
 int32LE :: Int32 -> Builder
-int32LE w = Builder (Sum 4, BB.int32LE w)
+int32LE w = Builder (Sum 4) (BB.int32LE w)
 
 -- | Convert a `Float` to a `Builder` by storing the bytes in IEEE-754 format in
 -- big-endian order
@@ -337,7 +342,7 @@ int32LE w = Builder (Sum 4, BB.int32LE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (floatBE 4.2))
 -- [64,134,102,102]
 floatBE :: Float -> Builder
-floatBE f = Builder (Sum 4, BB.floatBE f)
+floatBE f = Builder (Sum 4) (BB.floatBE f)
 
 -- | Convert a `Float` to a `Builder` by storing the bytes in IEEE-754 format in
 -- little-endian order
@@ -348,7 +353,7 @@ floatBE f = Builder (Sum 4, BB.floatBE f)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (floatLE 4.2))
 -- [102,102,134,64]
 floatLE :: Float -> Builder
-floatLE f = Builder (Sum 4, BB.floatLE f)
+floatLE f = Builder (Sum 4) (BB.floatLE f)
 
 -- | Convert a `Word64` to a `Builder` by storing the bytes in big-endian order
 --
@@ -358,7 +363,7 @@ floatLE f = Builder (Sum 4, BB.floatLE f)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word64BE 42))
 -- [0,0,0,0,0,0,0,42]
 word64BE :: Word64 -> Builder
-word64BE w = Builder (Sum 8, BB.word64BE w)
+word64BE w = Builder (Sum 8) (BB.word64BE w)
 
 -- | Convert a `Word64` to a `Builder` by storing the bytes in little-endian
 -- order
@@ -369,7 +374,7 @@ word64BE w = Builder (Sum 8, BB.word64BE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word64LE 42))
 -- [42,0,0,0,0,0,0,0]
 word64LE :: Word64 -> Builder
-word64LE w = Builder (Sum 8, BB.word64LE w)
+word64LE w = Builder (Sum 8) (BB.word64LE w)
 
 -- | Convert a `Word64` to a `Builder` using this variable-length encoding:
 --
@@ -398,7 +403,7 @@ word64Base128LEVar i
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int64BE (-5)))
 -- [255,255,255,255,255,255,255,251]
 int64BE :: Int64 -> Builder
-int64BE w = Builder (Sum 8, BB.int64BE w)
+int64BE w = Builder (Sum 8) (BB.int64BE w)
 
 -- | Convert an `Int64` to a `Builder` by storing the bytes in little-endian
 -- order
@@ -409,7 +414,7 @@ int64BE w = Builder (Sum 8, BB.int64BE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int64LE (-5)))
 -- [251,255,255,255,255,255,255,255]
 int64LE :: Int64 -> Builder
-int64LE w = Builder (Sum 8, BB.int64LE w)
+int64LE w = Builder (Sum 8) (BB.int64LE w)
 
 -- | Convert a `Double` to a `Builder` by storing the bytes in IEEE-754 format
 -- in big-endian order
@@ -420,7 +425,7 @@ int64LE w = Builder (Sum 8, BB.int64LE w)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (doubleBE 4.2))
 -- [64,16,204,204,204,204,204,205]
 doubleBE :: Double -> Builder
-doubleBE f = Builder (Sum 8, BB.doubleBE f)
+doubleBE f = Builder (Sum 8) (BB.doubleBE f)
 
 -- | Convert a `Double` to a `Builder` by storing the bytes in IEEE-754 format
 -- in little-endian order
@@ -431,7 +436,7 @@ doubleBE f = Builder (Sum 8, BB.doubleBE f)
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (doubleLE 4.2))
 -- [205,204,204,204,204,204,16,64]
 doubleLE :: Double -> Builder
-doubleLE f = Builder (Sum 8, BB.doubleLE f)
+doubleLE f = Builder (Sum 8) (BB.doubleLE f)
 
 -- | Convert an @ASCII@ `Char` to a `Builder`
 --
@@ -443,7 +448,7 @@ doubleLE f = Builder (Sum 8, BB.doubleLE f)
 -- >>> char7 'λ' -- Example of truncation
 -- Proto3.Wire.Builder.lazyByteString ";"
 char7 :: Char -> Builder
-char7 c = Builder (Sum 1, BB.char7 c)
+char7 c = Builder (Sum 1) (BB.char7 c)
 
 -- | Convert an @ASCII@ `String` to a `Builder`
 --
@@ -459,7 +464,7 @@ char7 c = Builder (Sum 1, BB.char7 c)
 -- >>> string7 "←↑→↓" -- Example of truncation
 -- Proto3.Wire.Builder.lazyByteString "\DLE\DC1\DC2\DC3"
 string7 :: String -> Builder
-string7 s = Builder (Sum (fromIntegral (length s)), BB.string7 s)
+string7 s = Builder (Sum (fromIntegral (length s))) (BB.string7 s)
 
 -- | Convert an @ISO/IEC 8859-1@ `Char` to a `Builder`
 --
@@ -471,7 +476,7 @@ string7 s = Builder (Sum (fromIntegral (length s)), BB.string7 s)
 -- >>> char8 'λ' -- Example of truncation
 -- Proto3.Wire.Builder.lazyByteString "\187"
 char8 :: Char -> Builder
-char8 c = Builder (Sum 1, BB.char8 c)
+char8 c = Builder (Sum 1) (BB.char8 c)
 
 -- | Convert an @ISO/IEC 8859-1@ `String` to a `Builder`
 --
@@ -487,7 +492,7 @@ char8 c = Builder (Sum 1, BB.char8 c)
 -- >>> string8 "←↑→↓" -- Example of truncation
 -- Proto3.Wire.Builder.lazyByteString "\144\145\146\147"
 string8 :: String -> Builder
-string8 s = Builder (Sum (fromIntegral (length s)), BB.string8 s)
+string8 s = Builder (Sum (fromIntegral (length s))) (BB.string8 s)
 
 -- | Convert a Unicode `Char` to a `Builder` using a @UTF-8@ encoding
 --
@@ -498,7 +503,7 @@ string8 s = Builder (Sum (fromIntegral (length s)), BB.string8 s)
 -- >>> hPutBuilder System.IO.stdout (charUtf8 'λ' <> charUtf8 '\n')
 -- λ
 charUtf8 :: Char -> Builder
-charUtf8 c = Builder (Sum (utf8Width c), BB.charUtf8 c)
+charUtf8 c = Builder (Sum (utf8Width c)) (BB.charUtf8 c)
 
 -- | Convert a Unicode `String` to a `Builder` using a @UTF-8@ encoding
 --
@@ -513,7 +518,7 @@ charUtf8 c = Builder (Sum (utf8Width c), BB.charUtf8 c)
 -- >>> hPutBuilder System.IO.stdout (stringUtf8 "←↑→↓\n")
 -- ←↑→↓
 stringUtf8 :: String -> Builder
-stringUtf8 s = Builder (Sum (len 0 s), BB.stringUtf8 s)
+stringUtf8 s = Builder (Sum (len 0 s)) (BB.stringUtf8 s)
   where
     len !n []      = n
     len !n (h : t) = len (n + utf8Width h) t
