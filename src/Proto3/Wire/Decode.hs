@@ -120,15 +120,7 @@ data ParsedField = VarintField Word64
 -- fromList [(1,[6,3]),(2,[4])]
 --
 toMap :: [(FieldNumber, v)] -> M.IntMap [v]
-toMap kvs0 = let takeWhileAsc n (x@(k,_):xs) =
-                         if k >= n then let (xs', xs'') = takeWhileAsc k xs
-                                        in  (x : xs', xs'')
-                                   else ([],x:xs)
-                 takeWhileAsc _ [] = ([],[])
-                 (orderedKvs, restKvs) = takeWhileAsc 0 $ map (\(x,y) -> (fromIntegral . getFieldNumber $ x, [y])) $ kvs0
-                 orderedMap = M.fromAscListWith (<>) orderedKvs
-                 ins t (k,v) = M.insert k v t
-             in foldl' ins orderedMap restKvs
+toMap kvs0 = M.fromListWith (<>) . map (fmap (:[])) . map (first (fromIntegral . getFieldNumber)) $ kvs0
 
 decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
 decodeWire bstr = drloop bstr []
