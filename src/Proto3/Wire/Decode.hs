@@ -127,7 +127,7 @@ toMap kvs0 = let takeWhileAsc n (x@(k,_):xs) =
                  takeWhileAsc _ [] = ([],[])
                  (orderedKvs, restKvs) = takeWhileAsc 0 $ map (\(x,y) -> (fromIntegral . getFieldNumber $ x, [y])) $ kvs0
                  orderedMap = M.fromAscListWith (<>) orderedKvs
-                 ins t (k,v) = M.insertWith (<>) k v t
+                 ins t (k,v) = M.insert k v t
              in foldl' ins orderedMap restKvs
 
 decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
