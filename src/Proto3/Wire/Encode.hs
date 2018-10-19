@@ -190,7 +190,7 @@ uint32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 -- >>> 1 `uint64` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint64 :: FieldNumber -> Word64 -> MessageBuilder
-uint64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
+uint64 num i = fieldHeader num Varint <> base128Varint i
 
 -- | Encode a 32-bit signed integer
 --

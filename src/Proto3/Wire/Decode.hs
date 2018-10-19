@@ -75,22 +75,19 @@ module Proto3.Wire.Decode
     ) where
 
 import           Control.Applicative
+import           Control.Arrow (first)
 import           Control.Exception       ( Exception )
-import           Control.Monad           ( unless, msum, foldM )
+import           Control.Monad           ( msum, foldM )
 import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
-import           Data.Foldable           ( foldl', toList )
-import           Data.Hashable           ( Hashable )
-import qualified Data.HashMap.Strict
-import qualified Data.Map.Strict         as M
+import           Data.Foldable           ( foldl' )
+import qualified Data.IntMap.Strict      as M -- TODO intmap
 import           Data.Maybe              ( fromMaybe )
 import           Data.Monoid             ( (<>) )
-import           Data.Sequence           ( Seq, ViewR(..), fromList, viewr )
-import qualified Data.Sequence
-import           Data.Serialize.Get      ( Get, getWord8, getByteString, getInt32le
+import           Data.Serialize.Get      ( Get, getWord8, getInt32le
                                          , getInt64le, getWord32le, getWord64le
-                                         , runGet , isEmpty )
+                                         , runGet )
 import           Data.Serialize.IEEE754  ( getFloat32le, getFloat64le )
 import           Data.Text.Lazy          ( Text, pack )
 import           Data.Text.Lazy.Encoding ( decodeUtf8' )
@@ -99,35 +96,6 @@ import           Data.Int                ( Int32, Int64 )
 import           Data.Word               ( Word8, Word32, Word64 )
 import           Proto3.Wire.Types
 import qualified Safe
-
--- | Get a base128 varint. Handles delimitation by MSB.
-getBase128Varint :: Get Word64
-getBase128Varint = loop 0 0
-  where
-    loop !i !w64 = do
-        w8 <- getWord8
-        if base128Terminal w8
-            then return $ combine i w64 w8
-            else loop (i + 1) (combine i w64 w8)
-    base128Terminal w8 = (not . (`testBit` 7)) $ w8
-    combine i w64 w8 = (w64 .|.
-                            (fromIntegral (w8 `clearBit` 7)
-                             `shiftL`
-                             (i * 7)))
-
--- | Parse a WireType. Call 'fail' if the parsed wire type is unknown.
-wireType :: Word8 -> Get WireType
-wireType 0 = return Varint
-wireType 5 = return Fixed32
-wireType 1 = return Fixed64
-wireType 2 = return LengthDelimited
-wireType wt = fail $ "wireType got unknown wire type: " ++ show wt
-
-getFieldHeader :: Get (FieldNumber, WireType)
-getFieldHeader = do
-    word <- getBase128Varint
-    wt <- wireType $ fromIntegral (word .&. 7)
-    return (FieldNumber (word `shiftR` 3), wt)
 
 -- | Decode a zigzag-encoded numeric type.
 -- See: http://stackoverflow.com/questions/2210923/zig-zag-decoding
@@ -145,62 +113,96 @@ data ParsedField = VarintField Word64
                  | LengthDelimitedField B.ByteString
     deriving (Show, Eq)
 
--- | Parse a length-delimited field.
-getLengthDelimited :: Get B.ByteString
-getLengthDelimited = getBase128Varint >>= (getByteString . fromIntegral)
-
--- | Parse a field based on its 'WireType'.
-getParsedField :: WireType -> Get ParsedField
-getParsedField Varint = VarintField <$> getBase128Varint
-getParsedField Fixed32 =
-    Fixed32Field <$> getByteString 4
-getParsedField Fixed64 =
-    Fixed64Field <$> getByteString 8
-getParsedField LengthDelimited =
-    LengthDelimitedField <$> getLengthDelimited
-
--- | Parse one key/value pair in a protobuf message.
-getKeyVal :: Get (FieldNumber, ParsedField)
-getKeyVal = do
-    (fn, wt) <- getFieldHeader
-    field <- getParsedField wt
-    return (fn, field)
-
--- | Deserializes a protobuf message into a map from field number to all fields
--- labeled with that field number, in their original order.
---
--- This is necessary because of repeated fields, as well as the protobuf
--- requirement that we honor only the last element with a given field number.
---
--- This is as much structure as we can recover without knowing the type of the
--- message.
-getFields :: Get [(FieldNumber, ParsedField)]
-getFields = do
-    keyvals <- many getKeyVal
-    e <- isEmpty
-    unless e $ fail "Encountered bytes that aren't valid key/value pairs."
-    return keyvals
-
 -- | Convert key-value pairs to a map of keys to a sequence of values with that
--- key, in their original occurrence order.
+-- key, in their reverse occurrence order.
 --
--- >>> toMap ([("k1", 3),("k2", 4),("k1", 6)] :: [(String,Int)])
--- fromList [("k1",fromList [3,6]),("k2",fromList [4])]
+-- >>> toMap ([(FieldNumber 1, 3),(FieldNumber 2, 4),(FieldNumber 1, 6)] :: [(FieldNumber,Int)])
+-- fromList [(1,[6,3]),(2,[4])]
 --
--- >>> toMap ([("k2", 7), ("k1", 6), ("k1", 3), ("k2", 4), ("k2", 5)] :: [(String,Int)])
--- fromList [("k1",fromList [6,3]),("k2",fromList [7,4,5])]
---
-toMap :: (Hashable k, Ord k) => [(k, v)] -> M.Map k (Seq v)
-toMap kvs0 = M.fromList (Data.HashMap.Strict.toList hashMap)
-  where
-    kvs1 = map (\(k, v) -> (k, Data.Sequence.singleton v)) kvs0
-    hashMap = Data.HashMap.Strict.fromListWith (flip (<>)) kvs1
+toMap :: [(FieldNumber, v)] -> M.IntMap [v]
+toMap kvs0 = M.fromListWith (<>) . map (fmap (:[])) . map (first (fromIntegral . getFieldNumber)) $ kvs0
 
--- | Turns a raw protobuf message into a list of 'FieldNumber' and the associated
--- 'ParsedField' value.
-decodeWire :: B.ByteString
-           -> Either String [(FieldNumber, ParsedField)]
-decodeWire = runGet getFields
+decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
+decodeWire bstr = drloop bstr []
+ where
+   drloop !bs xs | B.null bs = Right $ reverse xs
+   drloop !bs xs | otherwise = do
+      (w, rest) <- takeVarInt bs
+      wt <- gwireType $ fromIntegral (w .&. 7)
+      let fn = w `shiftR` 3
+      (res, rest2) <- takeWT wt rest
+      drloop rest2 ((FieldNumber fn,res):xs)
+
+
+eitherUncons :: B.ByteString -> Either String (Word8, B.ByteString)
+eitherUncons = maybe (Left "failed to parse varint128") Right . B.uncons
+
+
+takeVarInt :: B.ByteString -> Either String (Word64, B.ByteString)
+takeVarInt !bs =
+  case B.uncons bs of
+     Nothing -> Right (0, B.empty)
+     Just (w1, r1) -> do
+       if w1 < 128 then return (fromIntegral w1, r1) else do
+        let val1 = fromIntegral (w1 - 0x80)
+
+        (w2,r2) <- eitherUncons r1
+        if w2 < 128 then return (val1 + (fromIntegral w2 `shiftL` 7), r2) else do
+         let val2 = (val1 + (fromIntegral (w2 - 0x80) `shiftL` 7))
+
+         (w3,r3) <- eitherUncons r2
+         if w3 < 128 then return (val2 + (fromIntegral w3 `shiftL` 14), r3) else do
+          let val3 = (val2 + (fromIntegral (w3 - 0x80) `shiftL` 14))
+
+          (w4,r4) <- eitherUncons r3
+          if w4 < 128 then return (val3 + (fromIntegral w4 `shiftL` 21), r4) else do
+           let val4 = (val3 + (fromIntegral (w4 - 0x80) `shiftL` 21))
+
+           (w5,r5) <- eitherUncons r4
+           if w5 < 128 then return (val4 + (fromIntegral w5 `shiftL` 28), r5) else do
+            let val5 = (val4 + (fromIntegral (w5 - 0x80) `shiftL` 28))
+
+            (w6,r6) <- eitherUncons r5
+            if w6 < 128 then return (val5 + (fromIntegral w6 `shiftL` 35), r6) else do
+             let val6 = (val5 + (fromIntegral (w6 - 0x80) `shiftL` 35))
+
+             (w7,r7) <- eitherUncons r6
+             if w7 < 128 then return (val6 + (fromIntegral w7 `shiftL` 42), r7) else do
+              let val7 = (val6 + (fromIntegral (w7 - 0x80) `shiftL` 42))
+
+              (w8,r8) <- eitherUncons r7
+              if w8 < 128 then return (val7 + (fromIntegral w8 `shiftL` 49), r8) else do
+               let val8 = (val7 + (fromIntegral (w8 - 0x80) `shiftL` 49))
+
+               (w9,r9) <- eitherUncons r8
+               if w9 < 128 then return (val8 + (fromIntegral w9 `shiftL` 56), r9) else do
+                let val9 = (val8 + (fromIntegral (w9 - 0x80) `shiftL` 56))
+
+                (w10,r10) <- eitherUncons r9
+                if w10 < 128 then return (val9 + (fromIntegral w10 `shiftL` 63), r10) else do
+
+                 Left ("failed to parse varint128: too big; " ++ show val6)
+
+
+gwireType :: Word8 -> Either String WireType
+gwireType 0 = return Varint
+gwireType 5 = return Fixed32
+gwireType 1 = return Fixed64
+gwireType 2 = return LengthDelimited
+gwireType wt = Left $ "wireType got unknown wire type: " ++ show wt
+
+safeSplit :: Int -> B.ByteString -> Either String (B.ByteString, B.ByteString)
+safeSplit !i! b | B.length b < i = Left "failed to parse varint128: not enough bytes"
+                | otherwise = Right $ B.splitAt i b
+
+takeWT :: WireType -> B.ByteString -> Either String (ParsedField, B.ByteString)
+takeWT Varint !b  = fmap (first VarintField) $ takeVarInt b
+takeWT Fixed32 !b = fmap (first Fixed32Field) $ safeSplit 4 b
+takeWT Fixed64 !b = fmap (first Fixed64Field) $ safeSplit 8 b
+takeWT LengthDelimited b = do
+   (!len, rest) <- takeVarInt b
+   fmap (first LengthDelimitedField) $ safeSplit (fromIntegral len) rest
+
 
 -- * Parser Interface
 
@@ -254,22 +256,22 @@ instance Monad (Parser input) where
 type RawPrimitive = ParsedField
 
 -- | Raw data corresponding to a single 'FieldNumber'.
-type RawField = Seq RawPrimitive
+type RawField = [RawPrimitive]
 
 -- | Raw data corresponding to an entire message.
 --
 -- A 'Map' from 'FieldNumber's to the those values associated with
 -- that 'FieldNumber'.
-type RawMessage = M.Map FieldNumber RawField
+type RawMessage = M.IntMap RawField
 
 -- | Fold over a list of parsed fields accumulating a result
-foldFields :: M.Map FieldNumber (Parser RawPrimitive a, a -> acc -> acc)
+foldFields :: M.IntMap (Parser RawPrimitive a, a -> acc -> acc)
            -> acc
            -> [(FieldNumber, ParsedField)]
            -> Either ParseError acc
 foldFields parsers = foldM applyOne
   where applyOne acc (fn, field) =
-            case M.lookup fn parsers of
+            case M.lookup (fromIntegral . getFieldNumber $ fn) parsers of
                 Nothing              -> pure acc
                 Just (parser, apply) ->
                     case runParser parser field of
@@ -286,9 +288,9 @@ parse parser bs = case decodeWire bs of
 -- | To comply with the protobuf spec, if there are multiple fields with the same
 -- field number, this will always return the last one.
 parsedField :: RawField -> Maybe RawPrimitive
-parsedField xs = case viewr xs of
-    EmptyR -> Nothing
-    _ :> x -> Just x
+parsedField xs = case xs of
+    [] -> Nothing
+    (x:_) -> Just x
 
 throwWireTypeError :: Show input
                    => String
@@ -341,7 +343,7 @@ bytes :: Parser RawPrimitive B.ByteString
 bytes = Parser $
     \case
         LengthDelimitedField bs ->
-            return bs
+            return $! B.copy bs
         wrong -> throwWireTypeError "bytes" wrong
 
 -- | Parse a Boolean value.
@@ -408,6 +410,22 @@ enum = fmap toEither parseVarInt
 packedVarints :: Integral a => Parser RawPrimitive [a]
 packedVarints = fmap (fmap fromIntegral) (runGetPacked (many getBase128Varint))
 
+getBase128Varint :: Get Word64
+getBase128Varint = loop 0 0
+  where
+    loop !i !w64 = do
+        w8 <- getWord8
+        if base128Terminal w8
+            then return $ combine i w64 w8
+            else loop (i + 1) (combine i w64 w8)
+    base128Terminal w8 = (not . (`testBit` 7)) $ w8
+    combine i w64 w8 = (w64 .|.
+                            (fromIntegral (w8 `clearBit` 7)
+                             `shiftL`
+                             (i * 7)))
+
+
+
 -- | Parse a packed collection of @float@ values.
 packedFloats :: Parser RawPrimitive [Float]
 packedFloats = runGetPacked (many getFloat32le)
@@ -456,7 +474,7 @@ sfixed64 = runGetFixed64 getInt64le
 --
 -- > one float `at` fieldNumber 1 :: Parser RawMessage (Maybe Float)
 at :: Parser RawField a -> FieldNumber -> Parser RawMessage a
-at parser fn = Parser $ runParser parser . fromMaybe mempty . M.lookup fn
+at parser fn = Parser $ runParser parser . fromMaybe mempty . M.lookup (fromIntegral . getFieldNumber $ fn)
 
 -- | Try to parse different field numbers with their respective parsers. This is
 -- used to express alternative between possible fields of a oneof.
@@ -475,7 +493,7 @@ oneof :: a
          -- the oneof
       -> Parser RawMessage a
 oneof def parsersByFieldNum = Parser $ \input ->
-  case msum ((\(num,p) -> (p,) <$> M.lookup num input) <$> parsersByFieldNum) of
+  case msum ((\(num,p) -> (p,) <$> M.lookup (fromIntegral . getFieldNumber $ num) input) <$> parsersByFieldNum) of
     Nothing     -> pure def
     Just (p, v) -> runParser p v
 
@@ -501,14 +519,13 @@ one parser def = Parser (fmap (fromMaybe def) . traverse (runParser parser) . pa
 --
 -- For example, to parse a packed collection of @uint32@ values:
 --
--- > repeated uint32 :: Parser RawField (Seq Word32)
+-- > repeated uint32 :: Parser RawField ([Word32])
 --
 -- or to parse a collection of embedded messages:
 --
--- > repeated . embedded' :: Parser RawMessage a -> Parser RawField (Seq a)
-repeated :: Parser RawPrimitive a -> Parser RawField (Seq a)
-repeated parser = Parser $
-  fmap fromList . mapM (runParser parser) . toList
+-- > repeated . embedded' :: Parser RawMessage a -> Parser RawField ([a])
+repeated :: Parser RawPrimitive a -> Parser RawField [a]
+repeated parser = Parser $ fmap reverse . mapM (runParser parser)
 
 -- | For a field containing an embedded message, parse as far as getting the
 -- wire-level fields out of the message.
@@ -518,7 +535,7 @@ embeddedToParsedFields (LengthDelimitedField bs) =
         Left err -> Left (EmbeddedError ("Failed to parse embedded message: "
                                              <> (pack err))
                                         Nothing)
-        Right result -> return (toMap result)
+        Right result -> return (fmap reverse $ toMap result)
 embeddedToParsedFields wrong =
     throwWireTypeError "embedded" wrong
 
@@ -554,3 +571,6 @@ embedded' parser = Parser $
                                                 (Just err))
                 Right result -> return result
         wrong -> throwWireTypeError "embedded" wrong
+
+
+-- TODO test repeated and embedded better for reverse logic...

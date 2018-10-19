@@ -168,7 +168,6 @@ module Proto3.Wire.Tutorial where
 
 import           Data.ByteString         ( ByteString )
 import           Data.Monoid             ( (<>) )
-import           Data.Sequence           ( Seq )
 import           Data.Text.Lazy          ( Text )
 import           Data.Word               ( Word64 )
 
@@ -204,7 +203,7 @@ echoResponseParser :: Decode.Parser Decode.RawMessage EchoResponse
 echoResponseParser = EchoResponse <$> (one Decode.text mempty `at` 1)
                                   <*> (one Decode.uint64 0 `at` 2)
 
-data EchoManyRequest = EchoManyRequest { echoManyRequestRequests :: Seq EchoRequest
+data EchoManyRequest = EchoManyRequest { echoManyRequestRequests ::  [EchoRequest]
                                        }
 
 encodeEchoManyRequest :: EchoManyRequest -> Encode.MessageBuilder
