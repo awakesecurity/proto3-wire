@@ -127,7 +127,7 @@ decodeWire bstr = drloop bstr []
  where
    drloop !bs xs | B.null bs = Right $ reverse xs
    drloop !bs xs | otherwise = do
-      (w, rest) <- takeVI' bs
+      (w, rest) <- takeVarInt bs
       wt <- gwireType $ fromIntegral (w .&. 7)
       let fn = w `shiftR` 3
       (res, rest2) <- takeWT wt rest
@@ -138,48 +138,48 @@ eitherUncons :: B.ByteString -> Either String (Word8, B.ByteString)
 eitherUncons = maybe (Left "failed to parse varint128") Right . B.uncons
 
 
-takeVI' :: B.ByteString -> Either String (Word64, B.ByteString)
-takeVI' !bs =
+takeVarInt :: B.ByteString -> Either String (Word64, B.ByteString)
+takeVarInt !bs =
   case B.uncons bs of
      Nothing -> Right (0, B.empty)
      Just (w1, r1) -> do
        if w1 < 128 then return (fromIntegral w1, r1) else do
-        let val1 = fromIntegral (w1 .&. 0x7F)
+        let val1 = fromIntegral (w1 - 0x80)
 
         (w2,r2) <- eitherUncons r1
-        if w2 < 128 then return (val1 .|. (fromIntegral w2 `shiftL` 7), r2) else do
-         let val2 = (val1 .|. (fromIntegral (w2 .&. 0x7F) `shiftL` 7))
+        if w2 < 128 then return (val1 + (fromIntegral w2 `shiftL` 7), r2) else do
+         let val2 = (val1 + (fromIntegral (w2 - 0x80) `shiftL` 7))
 
          (w3,r3) <- eitherUncons r2
-         if w3 < 128 then return (val2 .|. (fromIntegral w3 `shiftL` 14), r3) else do
-          let val3 = (val2 .|. (fromIntegral (w3 .&. 0x7F) `shiftL` 14))
+         if w3 < 128 then return (val2 + (fromIntegral w3 `shiftL` 14), r3) else do
+          let val3 = (val2 + (fromIntegral (w3 - 0x80) `shiftL` 14))
 
           (w4,r4) <- eitherUncons r3
-          if w4 < 128 then return (val3 .|. (fromIntegral w4 `shiftL` 21), r4) else do
-           let val4 = (val3 .|. (fromIntegral (w4 .&. 0x7F) `shiftL` 21))
+          if w4 < 128 then return (val3 + (fromIntegral w4 `shiftL` 21), r4) else do
+           let val4 = (val3 + (fromIntegral (w4 - 0x80) `shiftL` 21))
 
            (w5,r5) <- eitherUncons r4
-           if w5 < 128 then return (val4 .|. (fromIntegral w5 `shiftL` 28), r5) else do
-            let val5 = (val4 .|. (fromIntegral (w5 .&. 0x7F) `shiftL` 28))
+           if w5 < 128 then return (val4 + (fromIntegral w5 `shiftL` 28), r5) else do
+            let val5 = (val4 + (fromIntegral (w5 - 0x80) `shiftL` 28))
 
             (w6,r6) <- eitherUncons r5
-            if w6 < 128 then return (val5 .|. (fromIntegral w6 `shiftL` 35), r6) else do
-             let val6 = (val5 .|. (fromIntegral (w6 .&. 0x7F) `shiftL` 35))
+            if w6 < 128 then return (val5 + (fromIntegral w6 `shiftL` 35), r6) else do
+             let val6 = (val5 + (fromIntegral (w6 - 0x80) `shiftL` 35))
 
              (w7,r7) <- eitherUncons r6
-             if w7 < 128 then return (val6 .|. (fromIntegral w7 `shiftL` 42), r7) else do
-              let val7 = (val6 .|. (fromIntegral (w7 .&. 0x7F) `shiftL` 42))
+             if w7 < 128 then return (val6 + (fromIntegral w7 `shiftL` 42), r7) else do
+              let val7 = (val6 + (fromIntegral (w7 - 0x80) `shiftL` 42))
 
               (w8,r8) <- eitherUncons r7
-              if w8 < 128 then return (val7 .|. (fromIntegral w8 `shiftL` 49), r8) else do
-               let val8 = (val7 .|. (fromIntegral (w8 .&. 0x7F) `shiftL` 49))
+              if w8 < 128 then return (val7 + (fromIntegral w8 `shiftL` 49), r8) else do
+               let val8 = (val7 + (fromIntegral (w8 - 0x80) `shiftL` 49))
 
                (w9,r9) <- eitherUncons r8
-               if w9 < 128 then return (val8 .|. (fromIntegral w9 `shiftL` 56), r9) else do
-                let val9 = (val8 .|. (fromIntegral (w9 .&. 0x7F) `shiftL` 56))
+               if w9 < 128 then return (val8 + (fromIntegral w9 `shiftL` 56), r9) else do
+                let val9 = (val8 + (fromIntegral (w9 - 0x80) `shiftL` 56))
 
                 (w10,r10) <- eitherUncons r9
-                if w10 < 128 then return (val9 .|. (fromIntegral w10 `shiftL` 63), r10) else do
+                if w10 < 128 then return (val9 + (fromIntegral w10 `shiftL` 63), r10) else do
 
                  Left ("failed to parse varint128: too big; " ++ show val6)
 
@@ -196,11 +196,11 @@ safeSplit !i! b | B.length b < i = Left "failed to parse varint128: not enough b
                 | otherwise = Right $ B.splitAt i b
 
 takeWT :: WireType -> B.ByteString -> Either String (ParsedField, B.ByteString)
-takeWT Varint !b  = fmap (first VarintField) $ takeVI' b
+takeWT Varint !b  = fmap (first VarintField) $ takeVarInt b
 takeWT Fixed32 !b = fmap (first Fixed32Field) $ safeSplit 4 b
 takeWT Fixed64 !b = fmap (first Fixed64Field) $ safeSplit 8 b
 takeWT LengthDelimited b = do
-   (!len, rest) <- takeVI' b
+   (!len, rest) <- takeVarInt b
    fmap (first LengthDelimitedField) $ safeSplit (fromIntegral len) rest
 
 
