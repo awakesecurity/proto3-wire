@@ -100,10 +100,11 @@ import           System.IO                     ( Handle )
 data Builder = Builder {-# UNPACK #-} !(Sum Word) BB.Builder
 
 instance Semigroup Builder where
+  (<>) (Builder s b) (Builder s1 b1) = Builder (s <> s1) (b <> b1)
 
 instance Monoid Builder where
   mempty = Builder mempty mempty
-  mappend (Builder s b) (Builder s1 b1) = Builder (s <> s1) (b <> b1)
+  mappend = (<>)
 
 instance Show Builder where
   showsPrec prec builder =
