@@ -535,7 +535,7 @@ embeddedToParsedFields (LengthDelimitedField bs) =
         Left err -> Left (EmbeddedError ("Failed to parse embedded message: "
                                              <> (pack err))
                                         Nothing)
-        Right result -> return (fmap reverse $ toMap result)
+        Right result -> return (toMap result)
 embeddedToParsedFields wrong =
     throwWireTypeError "embedded" wrong
 
