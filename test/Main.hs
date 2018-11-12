@@ -123,6 +123,22 @@ roundTripTests = testGroup "Roundtrip tests"
                                                                    0 `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
+                           , roundTrip "embeddedList"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedFixed32 (fieldNumber 1))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedFixed32 []
+                                                                   `at`
+                                                                   fieldNumber 1))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListUnpacked"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            (foldMap . Encode.int32) (fieldNumber 1))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (repeated Decode.int32
+                                                                   `at`
+                                                                   fieldNumber 1))
+                                            `at` fieldNumber 1)
                            , roundTrip "multiple fields"
                                        (\(a, b) -> Encode.int32 (fieldNumber 1)
                                                                 a <>
