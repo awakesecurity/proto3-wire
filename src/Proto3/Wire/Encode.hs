@@ -44,6 +44,7 @@ module Proto3.Wire.Encode
     ( -- * `MessageBuilder` type
       MessageBuilder
     , messageLength
+    , sizedMessageBuilder
     , rawMessageBuilder
     , toLazyByteString
     , unsafeFromLazyByteString
@@ -87,6 +88,7 @@ import qualified Data.ByteString.Builder       as BB
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Int                      ( Int32, Int64 )
 import           Data.Monoid                   ( (<>) )
+import           Data.Semigroup                ( Semigroup )
 import qualified Data.Text.Encoding            as Text.Encoding
 import qualified Data.Text.Lazy                as Text.Lazy
 import qualified Data.Text.Lazy.Encoding       as Text.Lazy.Encoding
@@ -107,7 +109,7 @@ import           Proto3.Wire.Types
 --
 -- Use `toLazyByteString` when you're done assembling the `MessageBuilder`
 newtype MessageBuilder = MessageBuilder { unMessageBuilder :: WB.Builder }
-  deriving Monoid
+  deriving (Semigroup, Monoid)
 
 instance Show MessageBuilder where
   showsPrec prec builder =
@@ -119,6 +121,10 @@ instance Show MessageBuilder where
 -- | Retrieve the length of a message, in bytes
 messageLength :: MessageBuilder -> Word
 messageLength = WB.builderLength . unMessageBuilder
+
+-- | Convert a message to a @"Proto3.Wire.Builder".`WB.Builder`@
+sizedMessageBuilder :: MessageBuilder -> WB.Builder
+sizedMessageBuilder = unMessageBuilder
 
 -- | Convert a message to a @"Data.ByteString.Builder".`BB.Builder`@
 rawMessageBuilder :: MessageBuilder -> BB.Builder
@@ -138,10 +144,7 @@ unsafeFromLazyByteString bytes' =
     MessageBuilder { unMessageBuilder = WB.lazyByteString bytes' }
 
 base128Varint :: Word64 -> MessageBuilder
-base128Varint i
-    | i <= 0x7f = MessageBuilder (WB.word8 (fromIntegral i))
-    | otherwise = MessageBuilder (WB.word8 (fromIntegral (0x80 .|. i))) <>
-          base128Varint (i `shiftR` 7)
+base128Varint = MessageBuilder . WB.word64Base128LEVar
 
 wireType :: WireType -> Word8
 wireType Varint = 0
@@ -187,7 +190,7 @@ uint32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 -- >>> 1 `uint64` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint64 :: FieldNumber -> Word64 -> MessageBuilder
-uint64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
+uint64 num i = fieldHeader num Varint <> base128Varint i
 
 -- | Encode a 32-bit signed integer
 --
