@@ -69,6 +69,7 @@ module Proto3.Wire.Decode
     , at
     , oneof
     , one
+    , single
     , repeated
     , embedded
     , embedded'
