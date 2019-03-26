@@ -494,6 +494,9 @@ oneof def parsersByFieldNum = Parser $ \input ->
 one :: Parser RawPrimitive a -> a -> Parser RawField a
 one parser def = Parser (fmap (fromMaybe def) . traverse (runParser parser) . parsedField)
 
+single :: Parser RawPrimitive a -> Parser RawField a
+single parser = Parser (join . maybe (Left $ BinaryError "Field does not exist") Right . traverse (runParser parser) . parsedField)
+
 -- | Parse a repeated field, or an unpacked collection of primitives.
 --
 -- Each value with the identified 'FieldNumber' will be passed to the parser
