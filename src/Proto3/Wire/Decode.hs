@@ -77,7 +77,7 @@ module Proto3.Wire.Decode
 import           Control.Applicative
 import           Control.Arrow (first)
 import           Control.Exception       ( Exception )
-import           Control.Monad           ( msum, foldM )
+import           Control.Monad           ( msum, foldM, join )
 import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
@@ -512,8 +512,9 @@ oneof def parsersByFieldNum = Parser $ \input ->
 one :: Parser RawPrimitive a -> a -> Parser RawField a
 one parser def = Parser (fmap (fromMaybe def) . traverse (runParser parser) . parsedField)
 
+-- | Like 'one', but fails if the field number is missing.
 single :: Parser RawPrimitive a -> Parser RawField a
-single parser = Parser (join . maybe (Left $ BinaryError "Field does not exist") Right . traverse (runParser parser) . parsedField)
+single parser = Parser (join . fmap (maybe (Left $ BinaryError "Field does not exist") Right) . traverse (runParser parser) . parsedField)
 
 -- | Parse a repeated field, or an unpacked collection of primitives.
 --
