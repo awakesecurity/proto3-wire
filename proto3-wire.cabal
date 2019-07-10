@@ -1,5 +1,5 @@
 name:                proto3-wire
-version:             1.0.0
+version:             1.1.0
 synopsis:            A low-level implementation of the Protocol Buffers (version 3) wire format
 license:             Apache-2.0
 license-file:        LICENSE
@@ -13,6 +13,7 @@ cabal-version:       >=1.10
 library
   exposed-modules:     Proto3.Wire
                        Proto3.Wire.Builder
+                       Proto3.Wire.Class
                        Proto3.Wire.Decode
                        Proto3.Wire.Encode
                        Proto3.Wire.Tutorial

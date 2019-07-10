@@ -109,7 +109,7 @@ roundTripTests = testGroup "Roundtrip tests"
                                        (Encode.double (fieldNumber 1))
                                        (one Decode.double 0 `at` fieldNumber 1)
                            , roundTrip "bool"
-                                       (Encode.enum (fieldNumber 1))
+                                       (Encode.bool (fieldNumber 1))
                                        (one Decode.bool False `at` fieldNumber 1)
                            , roundTrip "text"
                                        (Encode.text (fieldNumber 1) . T.pack)
