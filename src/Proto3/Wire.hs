@@ -17,8 +17,10 @@
 -- | See the "Proto3.Wire.Tutorial" module.
 
 module Proto3.Wire
-    ( -- * Message Structure
-      FieldNumber(..)
+    ( -- * Support Classes
+      ProtoEnum(..)
+      -- * Message Structure
+    , FieldNumber(..)
     , fieldNumber
       -- * Decoding Messages
     , at
@@ -27,5 +29,6 @@ module Proto3.Wire
     , repeated
     ) where
 
+import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 import           Proto3.Wire.Decode

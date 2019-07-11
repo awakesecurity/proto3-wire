@@ -94,8 +94,8 @@ import           Data.Text.Lazy.Encoding ( decodeUtf8' )
 import qualified Data.Traversable        as T
 import           Data.Int                ( Int32, Int64 )
 import           Data.Word               ( Word8, Word32, Word64 )
+import           Proto3.Wire.Class
 import           Proto3.Wire.Types
-import qualified Safe
 
 -- | Decode a zigzag-encoded numeric type.
 -- See: http://stackoverflow.com/questions/2210923/zig-zag-decoding
@@ -348,7 +348,10 @@ bytes = Parser $
 
 -- | Parse a Boolean value.
 bool :: Parser RawPrimitive Bool
-bool = fmap (Safe.toEnumDef False) parseVarInt
+bool = Parser $
+    \case
+        VarintField i -> return $! i /= 0
+        wrong -> throwWireTypeError "bool" wrong
 
 -- | Parse a primitive with the @int32@ wire type.
 int32 :: Parser RawPrimitive Int32
@@ -395,14 +398,14 @@ text = Parser $
 
 -- | Parse a primitive with an enumerated type.
 --
--- This parser will return 'Left' if the encoded integer value is outside the
--- acceptable range of the 'Bounded' instance.
-enum :: forall e. (Enum e, Bounded e) => Parser RawPrimitive (Either Int e)
+-- This parser will return 'Left' if the encoded integer value
+-- is not a code for a known enumerator.
+enum :: forall e. ProtoEnum e => Parser RawPrimitive (Either Int32 e)
 enum = fmap toEither parseVarInt
   where
-    toEither :: Int -> Either Int e
+    toEither :: Int32 -> Either Int32 e
     toEither i
-      | Just e <- Safe.toEnumMay i = Right e
+      | Just e <- toProtoEnumMay i = Right e
       | otherwise = Left i
 
 -- | Parse a packed collection of variable-width integer values (any of @int32@,

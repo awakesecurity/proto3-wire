@@ -66,6 +66,7 @@ module Proto3.Wire.Encode
     , float
     , double
     , enum
+    , bool
       -- * Strings
     , bytes
     , string
@@ -94,6 +95,7 @@ import qualified Data.Text.Lazy                as Text.Lazy
 import qualified Data.Text.Lazy.Encoding       as Text.Lazy.Encoding
 import           Data.Word                     ( Word8, Word32, Word64 )
 import qualified Proto3.Wire.Builder           as WB
+import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 
 -- $setup
@@ -265,16 +267,39 @@ double num d = fieldHeader num Fixed64 <> MessageBuilder (WB.doubleLE d)
 
 -- | Encode a value with an enumerable type.
 --
--- It can be useful to derive an 'Enum' instance for a type in order to
--- emulate enums appearing in .proto files.
+-- You should instantiate 'ProtoEnum' for a type in
+-- order to emulate enums appearing in .proto files.
 --
 -- For example:
 --
--- >>> data Shape = Circle | Square | Triangle deriving (Enum)
--- >>> 1 `enum` True <> 2 `enum` Circle
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\SOH\DLE\NUL"
-enum :: Enum e => FieldNumber -> e -> MessageBuilder
-enum num e = fieldHeader num Varint <> base128Varint (fromIntegral (fromEnum e))
+-- >>> :{
+--     data Shape = Circle | Square | Triangle deriving (Bounded, Enum)
+--     instance ProtoEnum Shape
+--     data Gap = Gap0 | Gap3
+--     instance ProtoEnum Gap where
+--       toProtoEnumMay i = case i of
+--         0 -> Just Gap0
+--         3 -> Just Gap3
+--         _ -> Nothing
+--       fromProtoEnum g = case g of
+--         Gap0 -> 0
+--         Gap3 -> 3
+-- :}
+--
+-- >>> 1 `enum` Triangle <> 2 `enum` Gap3
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\STX\DLE\ETX"
+enum :: ProtoEnum e => FieldNumber -> e -> MessageBuilder
+enum num e =
+  fieldHeader num Varint <> base128Varint (fromIntegral (fromProtoEnum e))
+
+-- | Encode a boolean value
+--
+-- For example:
+--
+-- >>> 1 `bool` True
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\SOH"
+bool :: FieldNumber -> Bool -> MessageBuilder
+bool num i = fieldHeader num Varint <> base128Varint (fromIntegral (fromEnum i))
 
 -- | Encode a sequence of octets as a field of type 'bytes'.
 --
