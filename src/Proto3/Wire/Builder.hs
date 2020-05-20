@@ -14,7 +14,9 @@
   limitations under the License.
 -}
 
--- | This module extends the "Data.ByteString.Builder" module by memoizing the
+-- | DEPRECATED because the rest of this library no longer uses this module.
+--
+-- This module extends the "Data.ByteString.Builder" module by memoizing the
 -- resulting length of each `Builder`
 --
 -- Example use:
@@ -78,13 +80,13 @@ import qualified Data.ByteString.Lazy          as BL
 import qualified Data.ByteString.Short         as BS
 import           Data.Char                     ( ord )
 import           Data.Int                      ( Int8, Int16, Int32, Int64 )
-import           Data.Semigroup                ( Semigroup(..), Sum(..) )
+import           Data.Semigroup                ( Sum(..) )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           System.IO                     ( Handle )
 
 -- $setup
 -- >>> :set -XOverloadedStrings
--- >>> import Data.Semigroup
+-- >>> :module Proto3.Wire.Builder
 
 -- | A `Builder` is like a @"Data.ByteString.Builder".`BB.Builder`@, but also
 -- memoizes the resulting length so that we can efficiently encode nested

@@ -1,12 +1,11 @@
-{ compiler ? "ghc822" }:
+{ compiler ? "ghc865" }:
 
 let
   fetchNixpkgs = import ./nix/fetchNixpkgs.nix;
 
   nixpkgs = fetchNixpkgs {
-   rev          = "a8ff2616603a6ff6bfb060368c12a973c8e007f6";
-   sha256       = "15l57ra62w9imqv3cfx9qp1fag3mqp95x0hdh81cqjb663qxihlg";
-   outputSha256 = "1nkpbwdx1jgr2pv5arllk6k56h3xc61jal7qi66g21qsx6daf0g3";
+    rev          = "d2a2ec2ebe49c42127cbf316d215a64c60d68fde";
+    outputSha256 = "09p9cr07frsqh7vip2i7cp86xnafg1pxhbnphx0q4sd5bvilqpfm";
   };
 
   config   = { allowUnfree = true; };

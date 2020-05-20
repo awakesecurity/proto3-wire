@@ -72,6 +72,8 @@ module Proto3.Wire.Decode
     , repeated
     , embedded
     , embedded'
+      -- * Exported For Doctest Only
+    , toMap
     ) where
 
 import           Control.Applicative
@@ -96,6 +98,10 @@ import           Data.Int                ( Int32, Int64 )
 import           Data.Word               ( Word8, Word32, Word64 )
 import           Proto3.Wire.Class
 import           Proto3.Wire.Types
+
+-- $setup
+-- >>> :set -XOverloadedStrings
+-- >>> :module Proto3.Wire.Decode Proto3.Wire.Types
 
 -- | Decode a zigzag-encoded numeric type.
 -- See: http://stackoverflow.com/questions/2210923/zig-zag-decoding

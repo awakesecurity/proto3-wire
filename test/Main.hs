@@ -44,7 +44,9 @@ main :: IO ()
 main = do
     Test.DocTest.doctest
       [ "-isrc"
+      , "-fobject-code"
       , "src/Proto3/Wire/Builder.hs"
+      , "src/Proto3/Wire/Reverse.hs"
       , "src/Proto3/Wire/Encode.hs"
       , "src/Proto3/Wire/Decode.hs"
       ]
@@ -63,7 +65,7 @@ data StringOrInt64 = TString T.Text | TInt64 Int64
 instance QC.Arbitrary StringOrInt64 where
     arbitrary = QC.oneof [ TString . T.pack <$> QC.arbitrary, TInt64 <$> QC.arbitrary ]
 
--- this just stress tesses the fancy varint encodings with more randomness
+-- This just stress tests the fancy varint encodings with more randomness.
 varIntHeavyTests :: TestTree
 varIntHeavyTests = adjustOption (const $ QC.QuickCheckTests 10000) $
                             roundTrip "varInt uint test"
