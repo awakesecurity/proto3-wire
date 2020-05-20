@@ -32,6 +32,8 @@ module Proto3.Wire.Reverse
       BuildR
 
       -- * Create `BuildR`s
+    , etaBuildR
+    , ensure
     , withLengthOf
     , byteString
     , lazyByteString

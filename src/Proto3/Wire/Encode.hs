@@ -38,6 +38,7 @@
 -- > 1 `strings` Just "some string" <>
 -- > 2 `strings` [ "foo", "bar", "baz" ]
 
+{-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
@@ -77,8 +78,7 @@ module Proto3.Wire.Encode
       -- * Embedded Messages
     , embedded
       -- * Packed repeated fields
-    , packedVarints32
-    , packedVarints64
+    , packedVarints
     , packedFixed32
     , packedFixed64
     , packedFloats
@@ -90,9 +90,16 @@ import qualified Data.ByteString               as B
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Int                      ( Int32, Int64 )
 import qualified Data.Text.Lazy                as Text.Lazy
-import qualified Data.Vector
+import qualified Data.Vector                   as Vector
+import           Data.Vector                   ( Vector )
+import           Data.Vector.Fusion.Bundle     ( Step(..) )
+import           Data.Vector.Fusion.Bundle.Monadic ( Bundle(..) )
+import           Data.Vector.Fusion.Stream.Monadic ( Stream(..) )
+import           Data.Vector.Fusion.Util       ( Id(..) )
+import           Data.Vector.Generic           ( streamR )
 import           Data.Word                     ( Word8, Word32, Word64 )
 import           GHC.TypeLits                  ( KnownNat )
+import           GHC.Types                     ( SPEC(..) )
 import qualified Proto3.Wire.Reverse           as RB
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 import           Proto3.Wire.Reverse.Width     ( ChooseNat, MonoidNat,
@@ -101,7 +108,7 @@ import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 
 -- $setup
--- >>> :set -XOverloadedStrings
+-- >>> :set -XOverloadedStrings -XOverloadedLists
 -- >>> :module Proto3.Wire.Encode Proto3.Wire.Class Data.Word
 
 -- | A `MessageBuilder` represents a serialized protobuf message
@@ -121,6 +128,13 @@ instance Show MessageBuilder where
         (showString "Proto3.Wire.Encode.unsafeFromLazyByteString " . shows bytes')
     where
       bytes' = toLazyByteString builder
+
+etaMessageBuilder :: (a -> MessageBuilder) -> (a -> MessageBuilder)
+etaMessageBuilder = (MessageBuilder .) . RB.etaBuildR . (unMessageBuilder .)
+
+ensureMessageBuilder :: Int -> MessageBuilder -> MessageBuilder
+ensureMessageBuilder required =
+  MessageBuilder . RB.ensure required . unMessageBuilder
 
 -- | O(n): Retrieve the length of a message, in bytes.
 messageLength :: MessageBuilder -> Word
@@ -150,10 +164,6 @@ primBounded (MessageBoundedPrim p) = MessageBuilder (Prim.primBoundedR p)
 base128Varint32 :: Word32 -> MessageBoundedPrim 5
 base128Varint32 = MessageBoundedPrim . Prim.word32Base128LEVar
 {-# INLINE base128Varint32 #-}
-
-base128Varint32_inline :: Word32 -> MessageBoundedPrim 5
-base128Varint32_inline = MessageBoundedPrim . Prim.word32Base128LEVar_inline
-{-# INLINE base128Varint32_inline #-}
 
 base128Varint64 :: Word64 -> MessageBoundedPrim 10
 base128Varint64 = MessageBoundedPrim . Prim.word64Base128LEVar
@@ -421,67 +431,89 @@ lazyByteString :: FieldNumber -> BL.ByteString -> MessageBuilder
 lazyByteString num = embedded num . MessageBuilder . RB.lazyByteString
 {-# INLINE lazyByteString #-}
 
--- | Encode varints in the space-efficient packed format.
---
--- >>> 1 `packedVarints32` [1, 2, 3]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
-packedVarints32 :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
-packedVarints32 num =
-  embedded num . foldMap (primBounded . base128Varint32_inline)
-{-# INLINABLE packedVarints32 #-}
-{-# SPECIALIZE packedVarints32
-      :: FieldNumber -> Data.Vector.Vector Word32 -> MessageBuilder #-}
+-- | Like 'foldl' but iterates right-to-left.
+foldlRVector :: (b -> a -> b) -> b -> Vector a -> b
+foldlRVector f z v =
+  case sElems (streamR v) of
+    Stream next initial ->
+      go SPEC initial
+        where
+          go !_ s0 =
+            case unId (next s0) of
+              Yield a s1 -> f (go SPEC s1) a
+              Skip s1 -> go SPEC s1
+              Done -> z
+{-# INLINE foldlRVector #-}
 
 -- | Encode varints in the space-efficient packed format.
 --
--- >>> 1 `packedVarints64` [1, 2, 3]
+-- The values to be encoded are specified by mapping the elements of a vector.
+--
+-- >>> packedVarints (subtract 10) 1 [11, 12, 13]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
-packedVarints64 :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedVarints64 num =
-  embedded num . foldMap (primBounded . base128Varint64_inline)
-{-# INLINABLE packedVarints64 #-}
-{-# SPECIALIZE packedVarints64
-      :: FieldNumber -> Data.Vector.Vector Word64 -> MessageBuilder #-}
+packedVarints :: (a -> Word64) -> FieldNumber -> Vector a -> MessageBuilder
+packedVarints f num = etaMessageBuilder (embedded num . foldlRVector op mempty)
+  where
+    op acc x = acc <> primBounded (base128Varint64 (f x))
+{-# INLINABLE packedVarints #-}
 
 -- | Encode fixed-width Word32s in the space-efficient packed format.
 --
--- >>> 1 `packedFixed32` [1, 2, 3]
+-- The values to be encoded are specified by mapping the elements of a vector.
+--
+-- >>> packedFixed32 (subtract 10) 1 [11, 12, 13]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
-packedFixed32 :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
-packedFixed32 num = embedded num . foldMap (MessageBuilder . RB.word32LE)
+packedFixed32 :: (a -> Word32) -> FieldNumber -> Vector a -> MessageBuilder
+packedFixed32 f num v =
+    etaMessageBuilder
+      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+  where
+    width = 4 * Vector.length v
+    op acc x = acc <> lf (Prim.word32LE (f x))
+    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
 {-# INLINABLE packedFixed32 #-}
-{-# SPECIALIZE packedFixed32
-      :: FieldNumber -> Data.Vector.Vector Word32 -> MessageBuilder #-}
 
 -- | Encode fixed-width Word64s in the space-efficient packed format.
 --
--- >>> 1 `packedFixed64` [1, 2, 3]
+-- The values to be encoded are specified by mapping the elements of a vector.
+--
+-- >>> packedFixed64 (subtract 10) 1 [11, 12, 13]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
-packedFixed64 :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedFixed64 num = embedded num . foldMap (MessageBuilder . RB.word64LE)
+packedFixed64 :: (a -> Word64) -> FieldNumber -> Vector a -> MessageBuilder
+packedFixed64 f num v =
+    etaMessageBuilder
+      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+  where
+    width = 8 * Vector.length v
+    op acc x = acc <> lf (Prim.word64LE (f x))
+    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
 {-# INLINABLE packedFixed64 #-}
-{-# SPECIALIZE packedFixed64
-      :: FieldNumber -> Data.Vector.Vector Word64 -> MessageBuilder #-}
 
 -- | Encode floats in the space-efficient packed format.
 --
 -- >>> 1 `packedFloats` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
-packedFloats :: Foldable f => FieldNumber -> f Float -> MessageBuilder
-packedFloats num = embedded num . foldMap (MessageBuilder . RB.floatLE)
-{-# INLINABLE packedFloats #-}
-{-# SPECIALIZE packedFloats
-      :: FieldNumber -> Data.Vector.Vector Float -> MessageBuilder #-}
+packedFloats :: FieldNumber -> Vector Float -> MessageBuilder
+packedFloats num v =
+    etaMessageBuilder
+      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+  where
+    width = 4 * Vector.length v
+    op acc x = acc <> lf (Prim.floatLE x)
+    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
 
 -- | Encode doubles in the space-efficient packed format.
 --
 -- >>> 1 `packedDoubles` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
-packedDoubles :: Foldable f => FieldNumber -> f Double -> MessageBuilder
-packedDoubles num = embedded num . foldMap (MessageBuilder . RB.doubleLE)
-{-# INLINABLE packedDoubles #-}
-{-# SPECIALIZE packedDoubles
-      :: FieldNumber -> Data.Vector.Vector Double -> MessageBuilder #-}
+packedDoubles :: FieldNumber -> Vector Double -> MessageBuilder
+packedDoubles num v =
+    etaMessageBuilder
+      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+  where
+    width = 8 * Vector.length v
+    op acc x = acc <> lf (Prim.doubleLE x)
+    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
 
 -- | Encode an embedded message.
 --

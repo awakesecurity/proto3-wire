@@ -27,6 +27,7 @@ import           Data.Maybe            ( fromMaybe )
 import           Data.Monoid           ( (<>) )
 import           Data.Int
 import qualified Data.Text.Lazy        as T
+import qualified Data.Vector           as V
 
 import           Proto3.Wire
 import qualified Proto3.Wire.Builder   as Builder
@@ -127,7 +128,8 @@ roundTripTests = testGroup "Roundtrip tests"
                                             `at` fieldNumber 1)
                            , roundTrip "embeddedList"
                                        (Encode.embedded (fieldNumber 1) .
-                                            Encode.packedFixed32 (fieldNumber 1))
+                                            Encode.packedFixed32 id (fieldNumber 1) .
+                                                V.fromList)
                                        (fmap (fromMaybe [0,1,2,3,4])
                                              (Decode.embedded (one Decode.packedFixed32 []
                                                                    `at`
