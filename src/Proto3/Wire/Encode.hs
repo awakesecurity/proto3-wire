@@ -180,15 +180,26 @@ fieldHeader = \num wt -> base128Varint64_inline
 --
 -- >>> 1 `int32` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
+-- >>> 1 `int64` (-42)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\214\255\255\255\255\255\255\255\255\SOH"
+--
+-- NOTE: Protobuf encoding converts an @int32@ to a 64-bit unsigned value
+-- before encoding it, not a 32-bit value (which would be more efficient).
+--
+-- To quote the specification: "If you use int32 or int64 as the type for
+-- a negative number, the resulting varint is always ten bytes long..."
+-- <https://developers.google.com/protocol-buffers/docs/encoding#varints>
 int32 :: FieldNumber -> Int32 -> MessageBuilder
 int32 = \num i -> primBounded $
-    fieldHeader num Varint >+< base128Varint32 (fromIntegral i)
+    fieldHeader num Varint >+< base128Varint64 (fromIntegral i)
 {-# INLINE int32 #-}
 
 -- | Encode a 64-bit "standard" integer
 --
 -- For example:
 --
+-- >>> 1 `int32` 42
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 -- >>> 1 `int64` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\214\255\255\255\255\255\255\255\255\SOH"
 int64 :: FieldNumber -> Int64 -> MessageBuilder
@@ -224,8 +235,13 @@ uint64 = \num i -> primBounded $
 --
 -- >>> 1 `sint32` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\bS"
+-- >>> 1 `sint32` maxBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\254\255\255\255\SI"
+-- >>> 1 `sint32` minBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\SI"
 sint32 :: FieldNumber -> Int32 -> MessageBuilder
-sint32 = \num i -> int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
+sint32 = \num i ->
+  uint32 num (fromIntegral ((i `shiftL` 1) `xor` (i `shiftR` 31)))
 {-# INLINE sint32 #-}
 
 -- | Encode a 64-bit signed integer
@@ -234,8 +250,13 @@ sint32 = \num i -> int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
 --
 -- >>> 1 `sint64` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\bS"
+-- >>> 1 `sint64` maxBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\254\255\255\255\255\255\255\255\255\SOH"
+-- >>> 1 `sint64` minBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\255\255\255\255\255\SOH"
 sint64 :: FieldNumber -> Int64 -> MessageBuilder
-sint64 = \num i -> int64 num ((i `shiftL` 1) `xor` (i `shiftR` 63))
+sint64 = \num i ->
+  uint64 num (fromIntegral ((i `shiftL` 1) `xor` (i `shiftR` 63)))
 {-# INLINE sint64 #-}
 
 -- | Encode a fixed-width 32-bit integer
