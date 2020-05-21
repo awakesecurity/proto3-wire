@@ -244,6 +244,10 @@ scratchOffset, spaceOffset, stateOffset, metaDataSize, metaDataAlign :: Int
                -- Note that we are allocating backward, so this
                -- will put the pointer at the lowest address.
 
+smallChunkSize, defaultChunkSize :: Int
+smallChunkSize = BB.smallChunkSize - metaDataSize
+defaultChunkSize = BB.defaultChunkSize - metaDataSize
+
 data MetaData
 
 metaPtr :: Ptr Word8 -> Int -> Ptr MetaData
@@ -442,7 +446,7 @@ runBuildR :: BuildR -> (Int, BL.ByteString)
 runBuildR f = unsafePerformIO $ do
   stateVar <- newIORef undefined   -- undefined only until 'newBuffer'
   bracket (newStablePtr stateVar) freeStablePtr $ \statePtr -> do
-    let u0 = BB.smallChunkSize - metaDataSize
+    let u0 = smallChunkSize
     v0 <- newBuffer BL.empty 0 stateVar statePtr u0
     (v1, u1) <- fromBuildR f v0 u0
     SealedState { sealedSB = bytes, totalSB = total } <- sealBuffer v1 u1
@@ -492,7 +496,7 @@ reallocate# required = toBuildR $ \v0 u0 -> do
     , stateVarSB = IORef (STRef stateVar)
     , statePtrSB = StablePtr statePtr
     } <- sealBuffer v0 u0
-  let !u1 = max (I# required) BB.defaultChunkSize
+  let !u1 = max (I# required) defaultChunkSize
   v1 <- newBuffer bytes total (IORef (STRef stateVar)) (StablePtr statePtr) u1
   pure (v1, u1)
 {-# NOINLINE reallocate# #-}  -- Avoid code bloat in library clients.
@@ -521,7 +525,7 @@ afterPrependChunks# SealedState
     IO go = case recycled of
       Nothing -> do
         -- The old buffer is part of 'sealed'.  Allocate a new buffer.
-        let u1 = BB.defaultChunkSize
+        let u1 = defaultChunkSize
         v1 <- newBuffer sealed total stateVar statePtr u1
         pure (v1, u1)
 
