@@ -32,6 +32,7 @@ import           Data.Monoid           ( (<>) )
 import           Data.Int
 import           Data.List             ( group )
 import qualified Data.Text.Lazy        as T
+import qualified Data.Vector           as V
 import           Data.Word             ( Word8, Word64 )
 import           Foreign               ( sizeOf )
 
@@ -70,6 +71,7 @@ tests = testGroup "Tests" [ roundTripTests
                           , lazyByteString
                           , decodeNonsense
                           , varIntHeavyTests
+                          , packedLargeTests
                           ]
 
 data StringOrInt64 = TString T.Text | TInt64 Int64
@@ -138,11 +140,43 @@ roundTripTests = testGroup "Roundtrip tests"
                                                                    0 `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
-                           , roundTrip "embeddedList"
+                           , roundTrip "embeddedListPackedVarints"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedVarints (fieldNumber 1))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedVarints []
+                                                                   `at`
+                                                                   fieldNumber 1))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedFixed32"
                                        (Encode.embedded (fieldNumber 1) .
                                             Encode.packedFixed32 (fieldNumber 1))
                                        (fmap (fromMaybe [0,1,2,3,4])
                                              (Decode.embedded (one Decode.packedFixed32 []
+                                                                   `at`
+                                                                   fieldNumber 1))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedFixed64"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedFixed64 (fieldNumber 1))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedFixed64 []
+                                                                   `at`
+                                                                   fieldNumber 1))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedFloats"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedFloats (fieldNumber 1))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedFloats []
+                                                                   `at`
+                                                                   fieldNumber 1))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedDoubles"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedDoubles (fieldNumber 1))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedDoubles []
                                                                    `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
@@ -585,3 +619,113 @@ decodeNonsense :: TestTree
 decodeNonsense = HU.testCase "Decoding a nonsensical string fails." $ do
   let decoded = Decode.parse (one Decode.fixed64 0 `at` fieldNumber 1) "test"
   HU.assertBool "decode fails" $ isLeft decoded
+
+packedLargeTests :: TestTree
+packedLargeTests = testGroup "Test packed encoders on large inputs"
+  [ packedVarints_large
+  , packedVarintsV_large
+  , packedBoolsV_large
+  , packedFixed32_large
+  , packedFixed32V_large
+  , packedFixed64_large
+  , packedFixed64V_large
+  , packedFloats_large
+  , packedFloatsV_large
+  , packedDoubles_large
+  , packedDoublesV_large
+  ]
+
+packedVarints_large :: TestTree
+packedVarints_large = HU.testCase "Large packedVarints" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString (Encode.packedVarints 13 [1 .. count])
+      decoded = Decode.parse (one Decode.packedVarints [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [1 .. count]) decoded
+
+packedVarintsV_large :: TestTree
+packedVarintsV_large = HU.testCase "Large packedVarintsV" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString
+                  (Encode.packedVarintsV (1 +) 13 (V.fromList [1 .. count]))
+      decoded = Decode.parse (one Decode.packedVarints [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
+
+packedBoolsV_large :: TestTree
+packedBoolsV_large = HU.testCase "Large packedBoolsV" $ do
+  let count = 40000 :: Int
+      values = map (flip Bits.testBit 0) [1 .. count]
+      encoded = Encode.toLazyByteString
+                  (Encode.packedBoolsV not 13 (V.fromList values))
+      decoded = Decode.parse (one Decode.packedVarints [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right (map (fromEnum . not) values)) decoded
+
+packedFixed32_large :: TestTree
+packedFixed32_large = HU.testCase "Large packedFixed32" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString (Encode.packedFixed32 13 [1 .. count])
+      decoded = Decode.parse (one Decode.packedFixed32 [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [1 .. count]) decoded
+
+packedFixed32V_large :: TestTree
+packedFixed32V_large = HU.testCase "Large packedFixed32V" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString
+                  (Encode.packedFixed32V (1 +) 13 (V.fromList [1 .. count]))
+      decoded = Decode.parse (one Decode.packedFixed32 [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
+
+packedFixed64_large :: TestTree
+packedFixed64_large = HU.testCase "Large packedFixed64" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString (Encode.packedFixed64 13 [1 .. count])
+      decoded = Decode.parse (one Decode.packedFixed64 [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [1 .. count]) decoded
+
+packedFixed64V_large :: TestTree
+packedFixed64V_large = HU.testCase "Large packedFixed64V" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString
+                  (Encode.packedFixed64V (1 +) 13 (V.fromList [1 .. count]))
+      decoded = Decode.parse (one Decode.packedFixed64 [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
+
+packedFloats_large :: TestTree
+packedFloats_large = HU.testCase "Large packedFloats" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString (Encode.packedFloats 13 [1 .. count])
+      decoded = Decode.parse (one Decode.packedFloats [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [1 .. count]) decoded
+
+packedFloatsV_large :: TestTree
+packedFloatsV_large = HU.testCase "Large packedFloatsV" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString
+                  (Encode.packedFloatsV (1 +) 13 (V.fromList [1 .. count]))
+      decoded = Decode.parse (one Decode.packedFloats [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
+
+packedDoubles_large :: TestTree
+packedDoubles_large = HU.testCase "Large packedDoubles" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString (Encode.packedDoubles 13 [1 .. count])
+      decoded = Decode.parse (one Decode.packedDoubles [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [1 .. count]) decoded
+
+packedDoublesV_large :: TestTree
+packedDoublesV_large = HU.testCase "Large packedDoublesV" $ do
+  let count = 40000
+      encoded = Encode.toLazyByteString
+                  (Encode.packedDoublesV (1 +) 13 (V.fromList [1 .. count]))
+      decoded = Decode.parse (one Decode.packedDoubles [] `at` fieldNumber 13)
+                             (BL.toStrict encoded)
+  HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded

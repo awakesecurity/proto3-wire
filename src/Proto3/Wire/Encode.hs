@@ -480,9 +480,7 @@ packedBoolsV f num =
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
 packedFixed32 :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
 packedFixed32 num =
-    etaMessageBuilder (embedded num . foldMap (lf . Prim.word32LE))
-  where
-    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.word32LE))
 {-# INLINE packedFixed32 #-}
 
 -- | A faster but more specialized variant of:
@@ -506,9 +504,7 @@ packedFixed32V f num =
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 packedFixed64 :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
 packedFixed64 num =
-    etaMessageBuilder (embedded num . foldMap (lf . Prim.word64LE))
-  where
-    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.word64LE))
 {-# INLINE packedFixed64 #-}
 
 -- | A faster but more specialized variant of:
@@ -530,9 +526,7 @@ packedFixed64V f num =
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
 packedFloats :: Foldable f => FieldNumber -> f Float -> MessageBuilder
 packedFloats num =
-    etaMessageBuilder (embedded num . foldMap (lf . Prim.floatLE))
-  where
-    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.floatLE))
 {-# INLINE packedFloats #-}
 
 -- | A faster but more specialized variant of:
@@ -554,9 +548,7 @@ packedFloatsV f num =
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
 packedDoubles :: Foldable f => FieldNumber -> f Double -> MessageBuilder
 packedDoubles num =
-    etaMessageBuilder (embedded num . foldMap (lf . Prim.doubleLE))
-  where
-    lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.doubleLE))
 {-# INLINE packedDoubles #-}
 
 -- | A faster but more specialized variant of:
