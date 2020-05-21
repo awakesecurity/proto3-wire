@@ -42,6 +42,7 @@
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
 module Proto3.Wire.Encode
@@ -79,27 +80,27 @@ module Proto3.Wire.Encode
     , embedded
       -- * Packed repeated fields
     , packedVarints
+    , packedVarintsV
     , packedFixed32
+    , packedFixed32V
     , packedFixed64
+    , packedFixed64V
     , packedFloats
+    , packedFloatsV
     , packedDoubles
+    , packedDoublesV
     ) where
 
 import           Data.Bits                     ( (.|.), shiftL, shiftR, xor )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Lazy          as BL
+import           Data.Coerce                   ( coerce )
 import           Data.Int                      ( Int32, Int64 )
 import qualified Data.Text.Lazy                as Text.Lazy
-import qualified Data.Vector                   as Vector
-import           Data.Vector                   ( Vector )
-import           Data.Vector.Fusion.Bundle     ( Step(..) )
-import           Data.Vector.Fusion.Bundle.Monadic ( Bundle(..) )
-import           Data.Vector.Fusion.Stream.Monadic ( Stream(..) )
-import           Data.Vector.Fusion.Util       ( Id(..) )
-import           Data.Vector.Generic           ( streamR )
+import qualified Data.Vector.Unboxed
+import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word32, Word64 )
 import           GHC.TypeLits                  ( KnownNat )
-import           GHC.Types                     ( SPEC(..) )
 import qualified Proto3.Wire.Reverse           as RB
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 import           Proto3.Wire.Reverse.Width     ( ChooseNat, MonoidNat,
@@ -129,12 +130,12 @@ instance Show MessageBuilder where
     where
       bytes' = toLazyByteString builder
 
-etaMessageBuilder :: (a -> MessageBuilder) -> (a -> MessageBuilder)
-etaMessageBuilder = (MessageBuilder .) . RB.etaBuildR . (unMessageBuilder .)
+etaMessageBuilder :: forall a . (a -> MessageBuilder) -> a -> MessageBuilder
+etaMessageBuilder = coerce (RB.etaBuildR @a)
 
-ensureMessageBuilder :: Int -> MessageBuilder -> MessageBuilder
-ensureMessageBuilder required =
-  MessageBuilder . RB.ensure required . unMessageBuilder
+vectorMessageBuilder ::
+  forall v a . Vector v a => (a -> MessageBuilder) -> v a -> MessageBuilder
+vectorMessageBuilder = coerce (RB.vectorBuildR @v @a)
 
 -- | O(n): Retrieve the length of a message, in bytes.
 messageLength :: MessageBuilder -> Word
@@ -431,89 +432,129 @@ lazyByteString :: FieldNumber -> BL.ByteString -> MessageBuilder
 lazyByteString num = embedded num . MessageBuilder . RB.lazyByteString
 {-# INLINE lazyByteString #-}
 
--- | Like 'foldl' but iterates right-to-left.
-foldlRVector :: (b -> a -> b) -> b -> Vector a -> b
-foldlRVector f z v =
-  case sElems (streamR v) of
-    Stream next initial ->
-      go SPEC initial
-        where
-          go !_ s0 =
-            case unId (next s0) of
-              Yield a s1 -> f (go SPEC s1) a
-              Skip s1 -> go SPEC s1
-              Done -> z
-{-# INLINE foldlRVector #-}
-
 -- | Encode varints in the space-efficient packed format.
+-- But consider 'packedVarintsV', which may be faster.
 --
 -- The values to be encoded are specified by mapping the elements of a vector.
 --
--- >>> packedVarints (subtract 10) 1 [11, 12, 13]
+-- >>> packedVarints 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
-packedVarints :: (a -> Word64) -> FieldNumber -> Vector a -> MessageBuilder
-packedVarints f num = etaMessageBuilder (embedded num . foldlRVector op mempty)
-  where
-    op acc x = acc <> primBounded (base128Varint64 (f x))
-{-# INLINABLE packedVarints #-}
+packedVarints :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
+packedVarints num =
+    etaMessageBuilder (embedded num . foldMap (primBounded . base128Varint64))
+{-# INLINE packedVarints #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedVarints num . fmap f
+--
+-- >>> packedVarintsV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word64)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
+packedVarintsV ::
+  Vector v a => (a -> Word64) -> FieldNumber -> v a -> MessageBuilder
+packedVarintsV f num =
+    embedded num . vectorMessageBuilder (primBounded . base128Varint64 . f)
+{-# INLINE packedVarintsV #-}
 
 -- | Encode fixed-width Word32s in the space-efficient packed format.
+-- But consider 'packedFixed32V', which may be faster.
 --
 -- The values to be encoded are specified by mapping the elements of a vector.
 --
--- >>> packedFixed32 (subtract 10) 1 [11, 12, 13]
+-- >>> packedFixed32 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
-packedFixed32 :: (a -> Word32) -> FieldNumber -> Vector a -> MessageBuilder
-packedFixed32 f num v =
-    etaMessageBuilder
-      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+packedFixed32 :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
+packedFixed32 num =
+    etaMessageBuilder (embedded num . foldMap (lf . Prim.word32LE))
   where
-    width = 4 * Vector.length v
-    op acc x = acc <> lf (Prim.word32LE (f x))
     lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
-{-# INLINABLE packedFixed32 #-}
+{-# INLINE packedFixed32 #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedFixed32 num . fmap f
+--
+-- >>> packedFixed32V (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word32)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
+packedFixed32V ::
+  Vector v a => (a -> Word32) -> FieldNumber -> v a -> MessageBuilder
+packedFixed32V f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrimR (Prim.word32LE . f)
+{-# INLINE packedFixed32V #-}
 
 -- | Encode fixed-width Word64s in the space-efficient packed format.
+-- But consider 'packedFixed64V', which may be faster.
 --
 -- The values to be encoded are specified by mapping the elements of a vector.
 --
--- >>> packedFixed64 (subtract 10) 1 [11, 12, 13]
+-- >>> packedFixed64 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
-packedFixed64 :: (a -> Word64) -> FieldNumber -> Vector a -> MessageBuilder
-packedFixed64 f num v =
-    etaMessageBuilder
-      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+packedFixed64 :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
+packedFixed64 num =
+    etaMessageBuilder (embedded num . foldMap (lf . Prim.word64LE))
   where
-    width = 8 * Vector.length v
-    op acc x = acc <> lf (Prim.word64LE (f x))
     lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
-{-# INLINABLE packedFixed64 #-}
+{-# INLINE packedFixed64 #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedFixed64 num . fmap f
+--
+-- >>> packedFixed64V (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word64)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
+packedFixed64V ::
+  Vector v a => (a -> Word64) -> FieldNumber -> v a -> MessageBuilder
+packedFixed64V f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrimR (Prim.word64LE . f)
+{-# INLINE packedFixed64V #-}
 
 -- | Encode floats in the space-efficient packed format.
+-- But consider 'packedFloatsV', which may be faster.
 --
 -- >>> 1 `packedFloats` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
-packedFloats :: FieldNumber -> Vector Float -> MessageBuilder
-packedFloats num v =
-    etaMessageBuilder
-      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+packedFloats :: Foldable f => FieldNumber -> f Float -> MessageBuilder
+packedFloats num =
+    etaMessageBuilder (embedded num . foldMap (lf . Prim.floatLE))
   where
-    width = 4 * Vector.length v
-    op acc x = acc <> lf (Prim.floatLE x)
     lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
+{-# INLINE packedFloats #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedFloats num . fmap f
+--
+-- >>> packedFloatsV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Float)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
+packedFloatsV ::
+  Vector v a => (a -> Float) -> FieldNumber -> v a -> MessageBuilder
+packedFloatsV f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrimR (Prim.floatLE . f)
+{-# INLINE packedFloatsV #-}
 
 -- | Encode doubles in the space-efficient packed format.
+-- But consider 'packedDoublesV', which may be faster.
 --
 -- >>> 1 `packedDoubles` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
-packedDoubles :: FieldNumber -> Vector Double -> MessageBuilder
-packedDoubles num v =
-    etaMessageBuilder
-      (embedded num . ensureMessageBuilder width . foldlRVector op mempty) v
+packedDoubles :: Foldable f => FieldNumber -> f Double -> MessageBuilder
+packedDoubles num =
+    etaMessageBuilder (embedded num . foldMap (lf . Prim.doubleLE))
   where
-    width = 8 * Vector.length v
-    op acc x = acc <> lf (Prim.doubleLE x)
     lf = MessageBuilder . Prim.unsafeBoundedPrimR . Prim.liftFixedToBoundedR
+{-# INLINE packedDoubles #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedDoubles num . fmap f
+--
+-- >>> packedDoublesV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Double)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
+packedDoublesV ::
+  Vector v a => (a -> Double) -> FieldNumber -> v a -> MessageBuilder
+packedDoublesV f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrimR (Prim.doubleLE . f)
+{-# INLINE packedDoublesV #-}
 
 -- | Encode an embedded message.
 --

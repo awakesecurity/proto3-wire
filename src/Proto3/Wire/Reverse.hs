@@ -70,6 +70,7 @@ module Proto3.Wire.Reverse
     , word32Base128LEVar_inline
     , word64Base128LEVar
     , word64Base128LEVar_inline
+    , vectorBuildR
 
     -- * Consume `BuildR`s
     , runBuildR
@@ -90,6 +91,7 @@ import           Data.Text                     as T
 import           Data.Text.Internal            as TI
 import           Data.Text.Internal.Fusion     as TIF
 import           Data.Text.Lazy                as TL
+import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           Foreign                       ( castPtr )
 import           GHC.Exts                      ( Word(..) )
@@ -792,3 +794,8 @@ word64Base128LEVar_inline :: Word64 -> BuildR
 word64Base128LEVar_inline = \(!x) ->
   Prim.primBoundedR (Prim.word64Base128LEVar_inline x)
 {-# INLINE word64Base128LEVar_inline #-}
+
+-- | Essentially 'foldMap', but iterates right to left for efficiency.
+vectorBuildR :: Vector v a => (a -> BuildR) -> v a -> BuildR
+vectorBuildR f = etaBuildR (foldlRVector (\acc x -> acc <> f x) mempty)
+{-# INLINE vectorBuildR #-}

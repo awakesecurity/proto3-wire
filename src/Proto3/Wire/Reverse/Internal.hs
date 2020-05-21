@@ -42,6 +42,7 @@ module Proto3.Wire.Reverse.Internal
     , withConsume
     , floatToWord32
     , doubleToWord64
+    , foldlRVector
     ) where
 
 import           Control.Exception             ( bracket )
@@ -54,6 +55,12 @@ import qualified Data.ByteString.Lazy.Internal as BLI
 import           Data.IORef                    ( IORef, newIORef,
                                                  readIORef, writeIORef )
 import qualified Data.Primitive                as P
+import           Data.Vector.Generic           ( Vector )
+import           Data.Vector.Fusion.Bundle     ( Step(..) )
+import           Data.Vector.Fusion.Bundle.Monadic ( Bundle(..) )
+import           Data.Vector.Fusion.Stream.Monadic ( Stream(..) )
+import           Data.Vector.Fusion.Util       ( Id(..) )
+import           Data.Vector.Generic           ( streamR )
 import           Data.Word                     ( Word8, Word32, Word64 )
 import           Foreign                       ( Storable(..),
                                                  castPtrToStablePtr,
@@ -72,6 +79,7 @@ import           GHC.Int                       ( Int(..) )
 import           GHC.Ptr                       ( Ptr(..), plusPtr )
 import           GHC.Stable                    ( StablePtr(..) )
 import           GHC.STRef                     ( STRef(..) )
+import           GHC.Types                     ( SPEC(..) )
 import           System.IO.Unsafe              ( unsafePerformIO )
 
 -- $setup
@@ -681,3 +689,18 @@ doubleToWord64 v u x = do
   let m = metaPtr v u
   pokeByteOff m scratchOffset x
   peekByteOff m scratchOffset
+
+-- | Like 'foldl' but iterates right-to-left,
+-- which is often useful when creating builders.
+foldlRVector :: Vector v a => (b -> a -> b) -> b -> v a -> b
+foldlRVector f = \z v ->
+  case sElems (streamR v) of
+    Stream next initial ->
+      go SPEC initial
+        where
+          go !_ s0 =
+            case unId (next s0) of
+              Yield a s1 -> f (go SPEC s1) a
+              Skip s1 -> go SPEC s1
+              Done -> z
+{-# INLINE foldlRVector #-}

@@ -83,6 +83,7 @@ module Proto3.Wire.Reverse.Prim
   , word32Base128LEVar_inline
   , word64Base128LEVar
   , word64Base128LEVar_inline
+  , vectorFixedPrimR
   ) where
 
 import           Data.Bits                     ( Bits(..) )
@@ -90,6 +91,7 @@ import           Data.Bool                     ( bool )
 import           Data.Char                     ( ord )
 import           Data.Int                      ( Int8, Int16, Int32, Int64 )
 import           Data.Kind                     ( Type )
+import qualified Data.Vector.Generic
 import           Data.Word                     ( Word16,
                                                  byteSwap16, byteSwap32,
                                                  byteSwap64 )
@@ -756,3 +758,19 @@ word64Base128LEVar_big x = ifNat (W64# x <= shiftL 1 60 - 1) p60 p64
 
     shR s = case fromIntegral (shiftR (W64# x) s) of W32# y -> y
 {-# NOINLINE word64Base128LEVar_big #-}
+
+-- | The analog of `Proto3.Wire.Reverse.vectorBuildR` for when fixed-width
+-- primitives encode the elements of the vector.  In this special case we
+-- can predict the overall length.
+vectorFixedPrimR ::
+  forall w v a .
+  (KnownNat w, Data.Vector.Generic.Vector v a) =>
+  (a -> FixedPrimR w) ->
+  v a ->
+  BuildR
+vectorFixedPrimR f = etaBuildR $ \v ->
+    let op acc x = acc <> unsafeBoundedPrimR (liftFixedToBoundedR (f x))
+    in ensure (w * Data.Vector.Generic.length v) (foldlRVector op mempty v)
+  where
+    w = fromInteger (natVal' (proxy# :: Proxy# w))
+{-# INLINE vectorFixedPrimR #-}
