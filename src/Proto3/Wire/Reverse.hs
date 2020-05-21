@@ -75,6 +75,9 @@ module Proto3.Wire.Reverse
     -- * Consume `BuildR`s
     , runBuildR
     , toLazyByteString
+
+    -- * Helpful combinators
+    , foldlRVector
     ) where
 
 import           Data.Bits                     ( (.&.) )

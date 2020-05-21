@@ -694,8 +694,8 @@ doubleToWord64 v u x = do
   pokeByteOff m scratchOffset x
   peekByteOff m scratchOffset
 
--- | Like 'foldl' but iterates right-to-left,
--- which is often useful when creating builders.
+-- | Like 'foldl' but iterates right-to-left, which
+-- is often useful when creating reverse builders.
 foldlRVector :: Vector v a => (b -> a -> b) -> b -> v a -> b
 foldlRVector f = \z v ->
   case sElems (streamR v) of
