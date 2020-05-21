@@ -48,6 +48,7 @@
 module Proto3.Wire.Encode
     ( -- * `MessageBuilder` type
       MessageBuilder
+    , vectorMessageBuilder
     , messageLength
     , toLazyByteString
     , unsafeFromLazyByteString
