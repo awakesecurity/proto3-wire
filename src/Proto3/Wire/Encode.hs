@@ -82,6 +82,7 @@ module Proto3.Wire.Encode
       -- * Packed repeated fields
     , packedVarints
     , packedVarintsV
+    , packedBoolsV
     , packedFixed32
     , packedFixed32V
     , packedFixed64
@@ -98,7 +99,6 @@ import qualified Data.ByteString.Lazy          as BL
 import           Data.Coerce                   ( coerce )
 import           Data.Int                      ( Int32, Int64 )
 import qualified Data.Text.Lazy                as Text.Lazy
-import qualified Data.Vector.Unboxed
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word32, Word64 )
 import           GHC.TypeLits                  ( KnownNat )
@@ -456,6 +456,20 @@ packedVarintsV ::
 packedVarintsV f num =
     embedded num . vectorMessageBuilder (primBounded . base128Varint64 . f)
 {-# INLINE packedVarintsV #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > packedVarintsV (fromIntegral . fromEnum) num
+--
+-- >>> packedBoolsV not 1 ([False, True] :: Data.Vector.Vector Bool)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
+packedBoolsV ::
+  Vector v a => (a -> Bool) -> FieldNumber -> v a -> MessageBuilder
+packedBoolsV f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrimR op
+  where
+    op = Prim.word8 . fromIntegral . fromEnum . f
+{-# INLINE packedBoolsV #-}
 
 -- | Encode fixed-width Word32s in the space-efficient packed format.
 -- But consider 'packedFixed32V', which may be faster.
