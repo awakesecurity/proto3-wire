@@ -131,9 +131,13 @@ instance Show MessageBuilder where
     where
       bytes' = toLazyByteString builder
 
+-- | Forces eta expansion of a function that produces a 'MessageBuilder',
+-- so that its input is not evaluated until the builder state is presented.
+-- This odd combinator seems to be useful at times.
 etaMessageBuilder :: forall a . (a -> MessageBuilder) -> a -> MessageBuilder
 etaMessageBuilder = coerce (RB.etaBuildR @a)
 
+-- | Essentially 'foldMap', but iterates right to left for efficiency.
 vectorMessageBuilder ::
   forall v a . Vector v a => (a -> MessageBuilder) -> v a -> MessageBuilder
 vectorMessageBuilder = coerce (RB.vectorBuildR @v @a)
