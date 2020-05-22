@@ -192,7 +192,7 @@ data BuildRState = BuildRState
   { currentBuffer :: {-# UNPACK #-}!(P.MutableByteArray RealWorld)
       -- ^ Specifies the current buffer.  Note that through this field
       -- every @'StablePtr' ('IORef' 'BuildRState')@ keeps one buffer
-      -- reachable until that stable pointer is explicitly destroyed
+      -- reachable until that stable pointer is explicitly destroyed.
   , sealedBuffers :: BL.ByteString
       -- ^ Holds the bytes written to previous buffers.  We arrange for
       -- this field to be in normal form (not just weak head normal form).
@@ -422,6 +422,13 @@ sealBuffer# addr unused s0 =
       BuildRState { currentBuffer = buffer, sealedBuffers = oldSealed } <-
        readIORef stateVar
       total <- readTotal v (I# unused)
+      -- The above call to 'readTotal' is the last access of the current
+      -- buffer through a raw pointer made by this function.  Therefore
+      -- we must be sure that the current buffer remains reachable at this
+      -- point in the state thread.  And we are sure of that fact, because
+      -- until a state action frees the stable pointer or modifies the state
+      -- variable, the stable pointer will reference the state variable,
+      -- which in turn will reference the current buffer.
       let allocation = P.sizeofMutableByteArray buffer - metaDataSize
       if allocation <= I# unused
         then
