@@ -48,6 +48,7 @@
 module Proto3.Wire.Encode
     ( -- * `MessageBuilder` type
       MessageBuilder
+    , reverseMessageBuilder
     , vectorMessageBuilder
     , messageLength
     , toLazyByteString
@@ -130,6 +131,10 @@ instance Show MessageBuilder where
         (showString "Proto3.Wire.Encode.unsafeFromLazyByteString " . shows bytes')
     where
       bytes' = toLazyByteString builder
+
+-- | Convert a message builder to a 'RB.BuildR'.
+reverseMessageBuilder :: MessageBuilder -> RB.BuildR
+reverseMessageBuilder = unMessageBuilder
 
 -- | Forces eta expansion of a function that produces a 'MessageBuilder',
 -- so that its input is not evaluated until the builder state is presented.
