@@ -229,13 +229,13 @@ allocateFields fields = (x, size, align)
 -- alignment values, so that we can avoid using 'lcm', which does not
 -- evaluate at compile time.  Compile-time evaluation help our speed.
 allocatePrimitiveField :: Storable a => a -> State (Int, Int) Int
-allocatePrimitiveField proxy = state $ \(off0, align0) ->
-  let width1 = sizeOf proxy
-      align1 = alignment proxy
-      unaligned = off0 - width1
-      off2 = unaligned - mod unaligned align1
-      align2 = max align0 align1
-  in (off2, (off2, align2))
+allocatePrimitiveField proxy = state $ \(prevOff, prevAlign) ->
+  let fieldWidth = sizeOf proxy
+      fieldAlign = alignment proxy
+      unaligned = prevOff - fieldWidth
+      nextOff = unaligned - mod unaligned fieldAlign
+      nextAlign = max prevAlign fieldAlign
+  in (nextOff, (nextOff, nextAlign))
 
 scratchOffset, spaceOffset, stateOffset, metaDataSize, metaDataAlign :: Int
 ((scratchOffset, spaceOffset, stateOffset), metaDataSize, metaDataAlign) =
