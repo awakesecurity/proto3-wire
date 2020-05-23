@@ -159,9 +159,11 @@ fromBuildR :: BuildR -> Ptr Word8 -> Int -> IO (Ptr Word8, Int)
 fromBuildR (BuildR f) (Ptr v0) (I# u0) =
   IO $ \s0 -> case f v0 u0 s0 of (# v1, u1, s1 #) -> (# s1, (Ptr v1, I# u1) #)
 
--- | Forces eta expansion of a function that produces a 'BuildR', so that
--- its input is not evaluated until the builder state is presented.  This
--- odd combinator seems to be useful at times.
+-- | Eta-expands a function that produces a 'BuildR', so that
+-- its input is not evaluated until the builder state is presented.
+--
+-- This odd combinator seems to help performance at times, though
+-- it may change behavior on nonterminating values of type @a@.
 etaBuildR :: (a -> BuildR) -> a -> BuildR
 etaBuildR f x = toBuildR $ \v u -> fromBuildR (f x) v u
 

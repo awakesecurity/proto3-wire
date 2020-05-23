@@ -136,9 +136,11 @@ instance Show MessageBuilder where
 reverseMessageBuilder :: MessageBuilder -> RB.BuildR
 reverseMessageBuilder = unMessageBuilder
 
--- | Forces eta expansion of a function that produces a 'MessageBuilder',
--- so that its input is not evaluated until the builder state is presented.
--- This odd combinator seems to be useful at times.
+-- | Eta-expands a function that produces a 'MessageBuilder', so that
+-- its input is not evaluated until the builder state is presented.
+--
+-- This odd combinator seems to help performance at times, though
+-- it may change behavior on nonterminating values of type @a@.
 etaMessageBuilder :: forall a . (a -> MessageBuilder) -> a -> MessageBuilder
 etaMessageBuilder = coerce (RB.etaBuildR @a)
 
