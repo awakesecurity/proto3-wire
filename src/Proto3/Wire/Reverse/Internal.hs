@@ -55,12 +55,8 @@ import qualified Data.ByteString.Lazy.Internal as BLI
 import           Data.IORef                    ( IORef, newIORef,
                                                  readIORef, writeIORef )
 import qualified Data.Primitive                as P
+import qualified Data.Vector.Generic           as VG
 import           Data.Vector.Generic           ( Vector )
-import           Data.Vector.Fusion.Bundle     ( Step(..) )
-import           Data.Vector.Fusion.Bundle.Monadic ( Bundle(..) )
-import           Data.Vector.Fusion.Stream.Monadic ( Stream(..) )
-import           Data.Vector.Fusion.Util       ( Id(..) )
-import           Data.Vector.Generic           ( streamR )
 import           Data.Word                     ( Word8, Word32, Word64 )
 import           Foreign                       ( Storable(..),
                                                  castPtrToStablePtr,
@@ -79,7 +75,6 @@ import           GHC.Int                       ( Int(..) )
 import           GHC.Ptr                       ( Ptr(..), plusPtr )
 import           GHC.Stable                    ( StablePtr(..) )
 import           GHC.STRef                     ( STRef(..) )
-import           GHC.Types                     ( SPEC(..) )
 import           System.IO.Unsafe              ( unsafePerformIO )
 
 -- $setup
@@ -227,7 +222,7 @@ allocateFields fields = (x, size, align)
 --
 -- WARNING: We assume that 'max' is the same as 'lcm' for any pair of
 -- alignment values, so that we can avoid using 'lcm', which does not
--- evaluate at compile time.  Compile-time evaluation help our speed.
+-- evaluate at compile time.  Compile-time evaluation helps our speed.
 allocatePrimitiveField :: Storable a => a -> State (Int, Int) Int
 allocatePrimitiveField proxy = state $ \(prevOff, prevAlign) ->
   let fieldWidth = sizeOf proxy
@@ -706,14 +701,8 @@ doubleToWord64 v u x = do
 -- | Like 'foldl' but iterates right-to-left, which
 -- is often useful when creating reverse builders.
 foldlRVector :: Vector v a => (b -> a -> b) -> b -> v a -> b
-foldlRVector f = \z v ->
-  case sElems (streamR v) of
-    Stream next initial ->
-      go SPEC initial
-        where
-          go !_ s0 =
-            case unId (next s0) of
-              Yield a s1 -> f (go SPEC s1) a
-              Skip s1 -> go SPEC s1
-              Done -> z
+foldlRVector f = \z v -> VG.foldr (flip f) z (VG.reverse v)
+  -- It may look like we create a reversed vector here, but thanks to
+  -- the rewrite rules in the vector library the vector is never actually
+  -- allocated, and instead we directly stream elements from right to left.
 {-# INLINE foldlRVector #-}
