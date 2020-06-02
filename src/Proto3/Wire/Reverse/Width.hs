@@ -59,6 +59,7 @@ class SemigroupNat b =>
   where
     memptyNat :: b 0
 
+-- | The larger of two `GHC.TypeLits.Nat`s.
 type Max v w = If (w <=? v) v w
 
 -- | Chooses between alternatives based on a condition.
@@ -68,9 +69,9 @@ type Max v w = If (w <=? v) v w
 -- between alternatives introduces a run-time variation in width.
 class ChooseNat b
   where
-    -- | Like `Data.Bool.bool`, chooses the first argument on 'False' and
-    -- the second on 'True', either way promoting the type-level 'Nat' to
-    -- the larger of the given 'Nat's.
+    -- | Like `Data.Bool.bool`, chooses the first argument on 'False'
+    -- and the second on 'True', either way promoting the type-level
+    -- `GHC.TypeLits.Nat` to the larger of the given `GHC.TypeLits.Nat`s.
     --
     -- Defaults to the natural implementation in terms of 'ifNat'.
     boolNat ::
@@ -78,9 +79,9 @@ class ChooseNat b
     boolNat f t b = ifNat b t f
     {-# INLINE CONLIKE boolNat #-}
 
-    -- | Like @if _ then _ else@, chooses the first argument on 'True' and
-    -- the second on 'False', either way promoting the type-level 'Nat' to
-    -- the larger of the given 'Nat's.
+    -- | Like @if _ then _ else@, chooses the first argument on 'True'
+    -- and the second on 'False', either way promoting the type-level
+    -- `GHC.TypeLits.Nat` to the larger of the given `GHC.TypeLits.Nat`s.
     --
     -- Defaults to the natural implementation in terms of 'boolNat'.
     ifNat ::

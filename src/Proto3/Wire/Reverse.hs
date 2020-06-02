@@ -78,6 +78,9 @@ module Proto3.Wire.Reverse
 
     -- * Helpful combinators
     , foldlRVector
+
+    -- * Exported for testing purposes only.
+    , testWithUnused
     ) where
 
 import           Data.Bits                     ( (.&.) )
@@ -200,7 +203,7 @@ shortByteString bs = withUnused $ \unused ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word8 42))
 -- [42]
 word8 :: Word8 -> BuildR
-word8 = \(!x) -> Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word8 x))
+word8 = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.word8 x))
 {-# INLINE word8 #-}
 
 -- | Convert a `Int8` to a `BuildR`
@@ -208,7 +211,7 @@ word8 = \(!x) -> Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word8 x))
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int8 (-5)))
 -- [251]
 int8 :: Int8 -> BuildR
-int8 = \(!x) -> Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int8 x))
+int8 = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.int8 x))
 {-# INLINE int8 #-}
 
 -- | Convert a `Word16` to a `BuildR` by storing the bytes in big-endian order
@@ -219,8 +222,7 @@ int8 = \(!x) -> Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int8 x))
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word16BE 42))
 -- [0,42]
 word16BE :: Word16 -> BuildR
-word16BE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word16BE x))
+word16BE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.word16BE x))
 {-# INLINE word16BE #-}
 
 -- | Convert a `Word16` to a `BuildR` by storing the bytes in little-endian
@@ -232,8 +234,7 @@ word16BE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word16LE 42))
 -- [42,0]
 word16LE :: Word16 -> BuildR
-word16LE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word16LE x))
+word16LE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.word16LE x))
 {-# INLINE word16LE #-}
 
 -- | Convert an `Int16` to a `BuildR` by storing the bytes in big-endian order
@@ -244,8 +245,7 @@ word16LE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int16BE (-5)))
 -- [255,251]
 int16BE :: Int16 -> BuildR
-int16BE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int16BE x))
+int16BE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.int16BE x))
 {-# INLINE int16BE #-}
 
 -- | Convert an `Int16` to a `BuildR` by storing the bytes in little-endian
@@ -257,8 +257,7 @@ int16BE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int16LE (-5)))
 -- [251,255]
 int16LE :: Int16 -> BuildR
-int16LE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int16LE x))
+int16LE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.int16LE x))
 {-# INLINE int16LE #-}
 
 -- | Convert a `Word32` to a `BuildR` by storing the bytes in big-endian order
@@ -269,8 +268,7 @@ int16LE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word32BE 42))
 -- [0,0,0,42]
 word32BE :: Word32 -> BuildR
-word32BE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word32BE x))
+word32BE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.word32BE x))
 {-# INLINE word32BE #-}
 
 -- | Convert a `Word32` to a `BuildR` by storing the bytes in little-endian
@@ -282,8 +280,7 @@ word32BE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word32LE 42))
 -- [42,0,0,0]
 word32LE :: Word32 -> BuildR
-word32LE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word32LE x))
+word32LE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.word32LE x))
 {-# INLINE word32LE #-}
 
 -- | Convert an `Int32` to a `BuildR` by storing the bytes in big-endian order
@@ -294,8 +291,7 @@ word32LE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int32BE (-5)))
 -- [255,255,255,251]
 int32BE :: Int32 -> BuildR
-int32BE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int32BE x))
+int32BE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.int32BE x))
 {-# INLINE int32BE #-}
 
 -- | Convert an `Int32` to a `BuildR` by storing the bytes in little-endian
@@ -307,8 +303,7 @@ int32BE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int32LE (-5)))
 -- [251,255,255,255]
 int32LE :: Int32 -> BuildR
-int32LE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int32LE x))
+int32LE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.int32LE x))
 {-# INLINE int32LE #-}
 
 -- | Convert a `Word64` to a `BuildR` by storing the bytes in big-endian order
@@ -319,8 +314,7 @@ int32LE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word64BE 42))
 -- [0,0,0,0,0,0,0,42]
 word64BE :: Word64 -> BuildR
-word64BE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word64BE x))
+word64BE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.word64BE x))
 {-# INLINE word64BE #-}
 
 -- | Convert a `Word64` to a `BuildR` by storing the bytes in little-endian
@@ -332,8 +326,7 @@ word64BE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word64LE 42))
 -- [42,0,0,0,0,0,0,0]
 word64LE :: Word64 -> BuildR
-word64LE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.word64LE x))
+word64LE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.word64LE x))
 {-# INLINE word64LE #-}
 
 -- | Convert an `Int64` to a `BuildR` by storing the bytes in big-endian order
@@ -344,8 +337,7 @@ word64LE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int64BE (-5)))
 -- [255,255,255,255,255,255,255,251]
 int64BE :: Int64 -> BuildR
-int64BE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int64BE x))
+int64BE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.int64BE x))
 {-# INLINE int64BE #-}
 
 -- | Convert an `Int64` to a `BuildR` by storing the bytes in little-endian
@@ -357,8 +349,7 @@ int64BE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (int64LE (-5)))
 -- [251,255,255,255,255,255,255,255]
 int64LE :: Int64 -> BuildR
-int64LE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.int64LE x))
+int64LE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.int64LE x))
 {-# INLINE int64LE #-}
 
 -- | Convert a `Float` to a `BuildR` by storing the bytes in IEEE-754 format in
@@ -370,8 +361,7 @@ int64LE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (floatBE 4.2))
 -- [64,134,102,102]
 floatBE :: Float -> BuildR
-floatBE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.floatBE x))
+floatBE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.floatBE x))
 {-# INLINE floatBE #-}
 
 -- | Convert a `Float` to a `BuildR` by storing the bytes in IEEE-754 format in
@@ -383,8 +373,7 @@ floatBE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (floatLE 4.2))
 -- [102,102,134,64]
 floatLE :: Float -> BuildR
-floatLE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.floatLE x))
+floatLE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.floatLE x))
 {-# INLINE floatLE #-}
 
 -- | Convert a `Double` to a `BuildR` by storing the bytes in IEEE-754 format
@@ -396,8 +385,7 @@ floatLE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (doubleBE 4.2))
 -- [64,16,204,204,204,204,204,205]
 doubleBE :: Double -> BuildR
-doubleBE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.doubleBE x))
+doubleBE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.doubleBE x))
 {-# INLINE doubleBE #-}
 
 -- | Convert a `Double` to a `BuildR` by storing the bytes in IEEE-754 format
@@ -409,8 +397,7 @@ doubleBE = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (doubleLE 4.2))
 -- [205,204,204,204,204,204,16,64]
 doubleLE :: Double -> BuildR
-doubleLE = \(!x) ->
-  Prim.primBoundedR (Prim.liftFixedToBoundedR (Prim.doubleLE x))
+doubleLE = \(!x) -> Prim.liftBoundedPrim (Prim.liftFixedPrim (Prim.doubleLE x))
 {-# INLINE doubleLE #-}
 
 -- | Convert an @ASCII@ `Char` to a `BuildR`
@@ -492,7 +479,7 @@ string8 = foldMap char8
 -- >>> charUtf8 (Data.Char.chr 0x10FFFF)
 -- Proto3.Wire.Reverse.lazyByteString "\244\143\191\191"
 charUtf8 :: Char -> BuildR
-charUtf8 = \(!x) -> Prim.primBoundedR (Prim.charUtf8 x)
+charUtf8 = \(!x) -> Prim.liftBoundedPrim (Prim.charUtf8 x)
 {-# INLINE charUtf8 #-}
 
 -- | Convert a Unicode `String` to a `BuildR` using a @UTF-8@ encoding
@@ -547,7 +534,7 @@ textUtf8 = etaBuildR $ \txt@(TI.Text _ _ word16Count) ->
           Done -> mempty
           Skip t2 -> go t2
           Yield !ch t2 ->
-            go t2 <> Prim.unsafeBoundedPrimR (Prim.charUtf8 ch)
+            go t2 <> Prim.unsafeBuildBoundedPrim (Prim.charUtf8 ch)
 
 -- | Convert a Unicode lazy `TL.Text` to a `BuildR` using a @UTF-8@ encoding
 --
@@ -599,7 +586,7 @@ lazyTextUtf8 = TL.foldrChunks ((<>) . textUtf8) mempty
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (wordBase128LEVar (Data.Bits.shiftL 1 32 - 1)))
 -- [255,255,255,255,15]
 wordBase128LEVar :: Word -> BuildR
-wordBase128LEVar = \(!x) -> Prim.primBoundedR (Prim.wordBase128LEVar x)
+wordBase128LEVar = \(!x) -> Prim.liftBoundedPrim (Prim.wordBase128LEVar x)
 {-# INLINE wordBase128LEVar #-}
 
 -- | Like 'wordBase128LEVar' but inlined, which may bloat your code.  On
@@ -629,7 +616,7 @@ wordBase128LEVar = \(!x) -> Prim.primBoundedR (Prim.wordBase128LEVar x)
 -- [255,255,255,255,15]
 wordBase128LEVar_inline :: Word -> BuildR
 wordBase128LEVar_inline = \(!x) ->
-  Prim.primBoundedR (Prim.wordBase128LEVar_inline x)
+  Prim.liftBoundedPrim (Prim.wordBase128LEVar_inline x)
 {-# INLINE wordBase128LEVar_inline #-}
 
 -- | Convert a `Word32` to a `BuildR` using this variable-length encoding:
@@ -669,7 +656,7 @@ wordBase128LEVar_inline = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word32Base128LEVar (Data.Bits.shiftL 1 32 - 1)))
 -- [255,255,255,255,15]
 word32Base128LEVar :: Word32 -> BuildR
-word32Base128LEVar = \(!x) -> Prim.primBoundedR (Prim.word32Base128LEVar x)
+word32Base128LEVar = \(!x) -> Prim.liftBoundedPrim (Prim.word32Base128LEVar x)
 {-# INLINE word32Base128LEVar #-}
 
 -- | Like 'word32Base128LEVar' but inlined, which may bloat your code.  On
@@ -702,7 +689,7 @@ word32Base128LEVar = \(!x) -> Prim.primBoundedR (Prim.word32Base128LEVar x)
 -- [255,255,255,255,15]
 word32Base128LEVar_inline :: Word32 -> BuildR
 word32Base128LEVar_inline = \(!x) ->
-  Prim.primBoundedR (Prim.word32Base128LEVar_inline x)
+  Prim.liftBoundedPrim (Prim.word32Base128LEVar_inline x)
 {-# INLINE word32Base128LEVar_inline #-}
 
 -- | Like 'word32Base128LEVar' but for 64-bit inputs.
@@ -749,7 +736,7 @@ word32Base128LEVar_inline = \(!x) ->
 -- >>> Data.ByteString.Lazy.unpack (toLazyByteString (word64Base128LEVar (- (1 :: Data.Word.Word64))))
 -- [255,255,255,255,255,255,255,255,255,1]
 word64Base128LEVar :: Word64 -> BuildR
-word64Base128LEVar = \(!x) -> Prim.primBoundedR (Prim.word64Base128LEVar x)
+word64Base128LEVar = \(!x) -> Prim.liftBoundedPrim (Prim.word64Base128LEVar x)
 {-# INLINE word64Base128LEVar #-}
 
 -- | Like 'word64Base128LEVar' but inlined, which may bloat your code.  On
@@ -795,10 +782,15 @@ word64Base128LEVar = \(!x) -> Prim.primBoundedR (Prim.word64Base128LEVar x)
 -- [255,255,255,255,255,255,255,255,255,1]
 word64Base128LEVar_inline :: Word64 -> BuildR
 word64Base128LEVar_inline = \(!x) ->
-  Prim.primBoundedR (Prim.word64Base128LEVar_inline x)
+  Prim.liftBoundedPrim (Prim.word64Base128LEVar_inline x)
 {-# INLINE word64Base128LEVar_inline #-}
 
 -- | Essentially 'foldMap', but iterates right to left for efficiency.
 vectorBuildR :: Vector v a => (a -> BuildR) -> v a -> BuildR
 vectorBuildR f = etaBuildR (foldlRVector (\acc x -> acc <> f x) mempty)
 {-# INLINE vectorBuildR #-}
+
+-- | Exported for testing purposes only.
+testWithUnused :: (Int -> BuildR) -> BuildR
+testWithUnused = withUnused
+{-# WARNING testWithUnused "Exported for testing purposes only." #-}

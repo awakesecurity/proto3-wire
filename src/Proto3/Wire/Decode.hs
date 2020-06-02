@@ -128,6 +128,7 @@ data ParsedField = VarintField Word64
 toMap :: [(FieldNumber, v)] -> M.IntMap [v]
 toMap kvs0 = M.fromListWith (<>) . map (fmap (:[])) . map (first (fromIntegral . getFieldNumber)) $ kvs0
 
+-- | Parses data in the raw wire format into an untyped 'Map' representation.
 decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
 decodeWire bstr = drloop bstr []
  where

@@ -24,6 +24,7 @@
 module Proto3.Wire.Reverse.Internal
     ( BuildR(..)
     , appendBuildR
+    , foldlRVector
     , toBuildR
     , fromBuildR
     , etaBuildR
@@ -39,10 +40,8 @@ module Proto3.Wire.Reverse.Internal
     , ensure
     , ensure#
     , unsafeConsume
-    , withConsume
     , floatToWord32
     , doubleToWord64
-    , foldlRVector
     ) where
 
 import           Control.Exception             ( bracket )
@@ -87,6 +86,12 @@ import           System.IO.Unsafe              ( unsafePerformIO )
 -- reachable during builder execution, though completed buffers
 -- may be copied to new storage at any time.  Aside from those
 -- primitives, 'BuildR' implementations may ignore that issue.
+--
+-- When combining `BuildR`s with '<>' we expect the best performance
+-- when associating to the left.  For example @'foldl' ('<>') 'mempty'@,
+-- though unless your 'foldl' iteration starts from the right there may
+-- still be issues.  Consider using `Proto3.Wire.Reverse.vectorBuildR`
+-- instead of 'foldMap'.
 newtype BuildR = BuildR
   (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #))
     -- ^ Both the builder arguments and the returned values are:
@@ -144,6 +149,15 @@ appendBuildR = \b c ->
     BuildR (\v0 u0 s0 -> case g v0 u0 s0 of (# v1, u1, s1 #) -> f v1 u1 s1)
 {-# INLINE CONLIKE [1] appendBuildR #-}
 
+-- | Like 'foldl' but iterates right-to-left, which
+-- is often useful when creating reverse builders.
+foldlRVector :: Vector v a => (b -> a -> b) -> b -> v a -> b
+foldlRVector f = \z v -> VG.foldr (flip f) z (VG.reverse v)
+  -- It may look like we create a reversed vector here, but thanks to
+  -- the rewrite rules in the vector library the vector is never actually
+  -- allocated, and instead we directly stream elements from right to left.
+{-# INLINE foldlRVector #-}
+
 toBuildR :: (Ptr Word8 -> Int -> IO (Ptr Word8, Int)) -> BuildR
 toBuildR f =
   BuildR $ \v0 u0 s0 ->
@@ -178,7 +192,7 @@ etaBuildR f x = toBuildR $ \v u -> fromBuildR (f x) v u
 --   *plus* the number of bytes actually written to previous buffers.
 --   We subtract the current unused figure to get the total bytes written.
 --
---   * 'Double#': suitably-aligned scratch space for serialization
+--   * `GHC.Float.Double#`: suitably-aligned scratch space for serialization
 --   of 'Double' and 'Float' values.
 --
 -- Though this choice imposes a small memory overhead in every buffer,
@@ -505,7 +519,8 @@ reallocate# required = toBuildR $ \v0 u0 -> do
   pure (v1, u1)
 {-# NOINLINE reallocate# #-}  -- Avoid code bloat in library clients.
 
--- | Called by 'prependChunk' and 'prependChunks' prepare a current buffer.
+-- | Called by 'prependChunk' and 'prependReverseChunks'
+-- to prepare a current buffer.
 --
 -- (This is a manual wrapper around 'afterPrependChunks#'.)
 afterPrependChunks :: SealedState -> IO (Ptr Word8, Int)
@@ -652,8 +667,8 @@ prependReverseChunks# v0 u0 s0 ad ct off len cs0 = go v0 u0 s0
 
       appendChunks oldTotal oldSealed rchunks
 
--- | Ensures that the current buffer has at least the given number of
--- bytes before executing the given builder.  See also 'withConsume'.
+-- | Ensures that the current buffer has at least the given
+-- number of bytes before executing the given builder.
 ensure :: Int -> BuildR -> BuildR
 ensure (I# required) f = ensure# required f
 
@@ -676,12 +691,6 @@ unsafeConsume = \width f ->
     pure (v1, u1)
 {-# INLINE unsafeConsume #-}
 
--- | Allocates the given number of bytes, which is ASSUMED to be nonnegative,
--- then invokes an action on their starting address to actually write them.
-withConsume :: Int -> (Ptr Word8 -> IO ()) -> BuildR
-withConsume = \width -> ensure width . unsafeConsume width
-{-# INLINE withConsume #-}
-
 -- | Given the builder inputs and a 'Float', converts
 -- that number to its bit pattern in native byte order.
 floatToWord32 :: Ptr Word8 -> Int -> Float -> IO Word32
@@ -697,12 +706,3 @@ doubleToWord64 v u x = do
   let m = metaPtr v u
   pokeByteOff m scratchOffset x
   peekByteOff m scratchOffset
-
--- | Like 'foldl' but iterates right-to-left, which
--- is often useful when creating reverse builders.
-foldlRVector :: Vector v a => (b -> a -> b) -> b -> v a -> b
-foldlRVector f = \z v -> VG.foldr (flip f) z (VG.reverse v)
-  -- It may look like we create a reversed vector here, but thanks to
-  -- the rewrite rules in the vector library the vector is never actually
-  -- allocated, and instead we directly stream elements from right to left.
-{-# INLINE foldlRVector #-}

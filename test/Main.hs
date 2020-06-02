@@ -17,6 +17,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 
+{-# OPTIONS_GHC -Wno-warnings-deprecations #-}
+
 module Main where
 
 import           Control.Arrow         ( (&&&), first, second )
@@ -39,7 +41,6 @@ import           Foreign               ( sizeOf )
 import           Proto3.Wire
 import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Reverse   as Reverse
-import qualified Proto3.Wire.Reverse.Internal as Reverse
 import qualified Proto3.Wire.Reverse.Prim as Prim
 import qualified Proto3.Wire.Encode    as Encode
 import qualified Proto3.Wire.Decode    as Decode
@@ -297,7 +298,7 @@ fillUnused = fillUnusedExcept 0
 -- the specified number of bytes unused, unless we start with fewer,
 -- in which case there is no change at all.
 fillUnusedExcept :: Int -> Word8 -> Reverse.BuildR
-fillUnusedExcept unusedRemaining w8 = Reverse.withUnused $ \u ->
+fillUnusedExcept unusedRemaining w8 = Reverse.testWithUnused $ \u ->
   foldMap (const (Reverse.word8 w8)) [unusedRemaining + 1 .. u]
 {-# NOINLINE fillUnusedExcept #-}
    -- In case rewrite rules would interfere with buffer boundaries,
@@ -305,7 +306,7 @@ fillUnusedExcept unusedRemaining w8 = Reverse.withUnused $ \u ->
 
 buildRBufferSizes :: TestTree
 buildRBufferSizes = HU.testCase "BuildR buffer sizes" $ do
-  let builder1 m = Reverse.ensure (max 8 m) $ Reverse.withUnused $ \u ->
+  let builder1 m = Reverse.ensure (max 8 m) $ Reverse.testWithUnused $ \u ->
         Reverse.word64BE (fromIntegral u) <> fillUnusedExcept 8 7
       {-# NOINLINE builder1 #-}
 
@@ -347,48 +348,48 @@ strictByteString = HU.testCase "Strict ByteString BuildR" $ do
   -- to distinguish it from other buffers, we start with a string
   -- that does not fit in that buffer, so that we can check that
   -- the buffer is reused as-is after those strings, not reallocated.
-  let builder1 = Reverse.withUnused $ \u -> Reverse.byteString $
+  let builder1 = Reverse.testWithUnused $ \u -> Reverse.byteString $
         B.replicate (buildRSmallChunkSize + 1) 10 <>
         encodeWord64BE (fromIntegral u)
       {-# NOINLINE builder1 #-}
 
   -- Then we write strings that do fit within the initial buffer.
-  let builder2 = Reverse.withUnused $ \u -> Reverse.byteString $
+  let builder2 = Reverse.testWithUnused $ \u -> Reverse.byteString $
         B.replicate 3 20 <> encodeWord64BE (fromIntegral u)
       {-# NOINLINE builder2 #-}
 
-  let builder3 = Reverse.withUnused $ \u -> Reverse.byteString $
+  let builder3 = Reverse.testWithUnused $ \u -> Reverse.byteString $
         B.replicate 3 30 <> encodeWord64BE (fromIntegral u)
       {-# NOINLINE builder3 #-}
 
   -- Then we check the just-enough-room case, which incidentally
   -- ensures that we use enough of the initial buffer that it
   -- will not be recycled.
-  let builder4 = ( Reverse.withUnused $ \u -> Reverse.byteString $
+  let builder4 = ( Reverse.testWithUnused $ \u -> Reverse.byteString $
                      B.replicate 3 40 <> encodeWord64BE (fromIntegral u) )
                  <> fillUnusedExcept 11 (0xD0 - 4) <>
-                 ( Reverse.withUnused $ \u -> Reverse.byteString $
+                 ( Reverse.testWithUnused $ \u -> Reverse.byteString $
                      encodeWord64BE (fromIntegral u) )
       {-# NOINLINE builder4 #-}
 
   -- Then the case of the almost-full-buffer with not quite enough room.
-  let builder5 = ( Reverse.withUnused $ \u -> Reverse.byteString $
+  let builder5 = ( Reverse.testWithUnused $ \u -> Reverse.byteString $
                      B.replicate 3 50 <> encodeWord64BE (fromIntegral u) )
                  <> fillUnusedExcept 10 (0xD0 - 5) <>
-                 ( Reverse.withUnused $ \u -> Reverse.byteString $
+                 ( Reverse.testWithUnused $ \u -> Reverse.byteString $
                      encodeWord64BE (fromIntegral u) )
       {-# NOINLINE builder5 #-}
 
   -- Then the full-buffer case.
-  let builder6 = ( Reverse.withUnused $ \u -> Reverse.byteString $
+  let builder6 = ( Reverse.testWithUnused $ \u -> Reverse.byteString $
                      B.replicate 3 60 <> encodeWord64BE (fromIntegral u) )
                  <> fillUnused (0xD0 - 6) <>
-                 ( Reverse.withUnused $ \u -> Reverse.byteString $
+                 ( Reverse.testWithUnused $ \u -> Reverse.byteString $
                      encodeWord64BE (fromIntegral u) )
       {-# NOINLINE builder6 #-}
 
   -- Check final unused.
-  let builder7 = ( Reverse.withUnused $ \u -> Reverse.byteString $
+  let builder7 = ( Reverse.testWithUnused $ \u -> Reverse.byteString $
                      B.replicate 3 70 <> encodeWord64BE (fromIntegral u) )
       {-# NOINLINE builder7 #-}
 
@@ -469,7 +470,7 @@ lazyByteString = HU.testCase "Strict ByteString BuildR" $ do
   -- to distinguish it from other buffers, we start with a string
   -- whose chunks do not fit in that buffer, so that we can check that
   -- the buffer is reused as-is after those strings, not reallocated.
-  let builder1 = Reverse.withUnused $ \u -> Reverse.lazyByteString $
+  let builder1 = Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
         BL.fromStrict ( B.replicate (buildRSmallChunkSize + 1) 12 ) <>
         BL.fromStrict ( B.replicate (buildRSmallChunkSize + 1) 11 ) <>
         BL.fromStrict ( B.replicate (buildRSmallChunkSize + 1) 10 <>
@@ -482,14 +483,14 @@ lazyByteString = HU.testCase "Strict ByteString BuildR" $ do
   -- of the initial buffer is consumed because otherwise it might
   -- be recycled, which would prevent us from detecting that some
   -- chunks were actually written to the buffer.
-  let builder2 = Reverse.withUnused $ \u -> Reverse.lazyByteString $
+  let builder2 = Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
         BL.fromStrict ( B.replicate 3 22 ) <>
         BL.fromStrict ( B.replicate (buildRSmallChunkSize + 1 - 14) 21 ) <>
         BL.fromStrict ( B.replicate 3 20 <> encodeWord64BE (fromIntegral u) )
       {-# NOINLINE builder2 #-}
 
   -- And a string that fits entirely within the second buffer.
-  let builder3 = Reverse.withUnused $ \u -> Reverse.lazyByteString $
+  let builder3 = Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
         BL.fromStrict ( B.replicate 3 32 ) <>
         BL.fromStrict ( B.replicate 3 31 ) <>
         BL.fromStrict ( B.replicate 3 30 <> encodeWord64BE (fromIntegral u) )
@@ -497,40 +498,40 @@ lazyByteString = HU.testCase "Strict ByteString BuildR" $ do
 
   -- Then we check the just-enough-room case.
   let builder4 =
-        ( Reverse.withUnused $ \u -> Reverse.lazyByteString $
+        ( Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
             BL.fromStrict (B.replicate 3 41) <>
             BL.fromStrict (B.replicate 3 40 <> encodeWord64BE (fromIntegral u))
         ) <> fillUnusedExcept 14 (0xD0 - 4) <>
-        ( Reverse.withUnused $ \u -> Reverse.lazyByteString $
+        ( Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
             BL.fromStrict (encodeWord64BE (fromIntegral u))
         )
       {-# NOINLINE builder4 #-}
 
   -- Then the case of the almost-full-buffer with not quite enough room.
   let builder5 =
-        ( Reverse.withUnused $ \u -> Reverse.lazyByteString $
+        ( Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
             BL.fromStrict (B.replicate 3 51) <>
             BL.fromStrict (B.replicate 3 50 <> encodeWord64BE (fromIntegral u))
         ) <> fillUnusedExcept 13 (0xD0 - 5) <>
-        ( Reverse.withUnused $ \u -> Reverse.lazyByteString $
+        ( Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
             BL.fromStrict (encodeWord64BE (fromIntegral u))
         )
       {-# NOINLINE builder5 #-}
 
   -- Then the full-buffer case.
   let builder6 =
-        ( Reverse.withUnused $ \u -> Reverse.lazyByteString $
+        ( Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
             BL.fromStrict (B.replicate 3 61) <>
             BL.fromStrict (B.replicate 3 60 <> encodeWord64BE (fromIntegral u))
         ) <> fillUnused (0xD0 - 6) <>
-        ( Reverse.withUnused $ \u -> Reverse.lazyByteString $
+        ( Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
             BL.fromStrict (encodeWord64BE (fromIntegral u))
         )
       {-# NOINLINE builder6 #-}
 
   -- Check final unused.
   let builder7 =
-        ( Reverse.withUnused $ \u -> Reverse.lazyByteString $
+        ( Reverse.testWithUnused $ \u -> Reverse.lazyByteString $
             BL.fromStrict (B.replicate 3 70 <> encodeWord64BE (fromIntegral u))
         )
       {-# NOINLINE builder7 #-}
