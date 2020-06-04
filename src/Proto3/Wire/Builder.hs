@@ -26,6 +26,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Proto3.Wire.Builder
+    {-# DEPRECATED "This module is no longer used by the rest of the proto3-wire package." #-}
     (
       -- * `Builder` type
       Builder
@@ -78,13 +79,13 @@ import qualified Data.ByteString.Lazy          as BL
 import qualified Data.ByteString.Short         as BS
 import           Data.Char                     ( ord )
 import           Data.Int                      ( Int8, Int16, Int32, Int64 )
-import           Data.Semigroup                ( Semigroup(..), Sum(..) )
+import           Data.Semigroup                ( Sum(..) )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           System.IO                     ( Handle )
 
 -- $setup
--- >>> :set -XOverloadedStrings
--- >>> import Data.Semigroup
+-- >>> :set -XOverloadedStrings -Wno-warnings-deprecations
+-- >>> :module Proto3.Wire.Builder
 
 -- | A `Builder` is like a @"Data.ByteString.Builder".`BB.Builder`@, but also
 -- memoizes the resulting length so that we can efficiently encode nested

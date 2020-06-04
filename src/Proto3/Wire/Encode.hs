@@ -38,14 +38,19 @@
 -- > 1 `strings` Just "some string" <>
 -- > 2 `strings` [ "foo", "bar", "baz" ]
 
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 module Proto3.Wire.Encode
     ( -- * `MessageBuilder` type
       MessageBuilder
+    , reverseMessageBuilder
+    , vectorMessageBuilder
     , messageLength
-    , sizedMessageBuilder
-    , rawMessageBuilder
     , toLazyByteString
     , unsafeFromLazyByteString
 
@@ -77,30 +82,37 @@ module Proto3.Wire.Encode
     , embedded
       -- * Packed repeated fields
     , packedVarints
+    , packedVarintsV
+    , packedBoolsV
     , packedFixed32
+    , packedFixed32V
     , packedFixed64
+    , packedFixed64V
     , packedFloats
+    , packedFloatsV
     , packedDoubles
+    , packedDoublesV
     ) where
 
 import           Data.Bits                     ( (.|.), shiftL, shiftR, xor )
 import qualified Data.ByteString               as B
-import qualified Data.ByteString.Builder       as BB
 import qualified Data.ByteString.Lazy          as BL
+import           Data.Coerce                   ( coerce )
 import           Data.Int                      ( Int32, Int64 )
-import           Data.Monoid                   ( (<>) )
-import           Data.Semigroup                ( Semigroup )
-import qualified Data.Text.Encoding            as Text.Encoding
 import qualified Data.Text.Lazy                as Text.Lazy
-import qualified Data.Text.Lazy.Encoding       as Text.Lazy.Encoding
+import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word32, Word64 )
-import qualified Proto3.Wire.Builder           as WB
+import           GHC.TypeLits                  ( KnownNat )
+import qualified Proto3.Wire.Reverse           as RB
+import qualified Proto3.Wire.Reverse.Prim      as Prim
+import           Proto3.Wire.Reverse.Prim      ( ChooseNat, MonoidNat,
+                                                 SemigroupNat(..) )
 import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 
 -- $setup
---
--- >>> :set -XOverloadedStrings
+-- >>> :set -XOverloadedStrings -XOverloadedLists
+-- >>> :module Proto3.Wire.Encode Proto3.Wire.Class Data.Word
 
 -- | A `MessageBuilder` represents a serialized protobuf message
 --
@@ -110,8 +122,8 @@ import           Proto3.Wire.Types
 -- `MessageBuilder`
 --
 -- Use `toLazyByteString` when you're done assembling the `MessageBuilder`
-newtype MessageBuilder = MessageBuilder { unMessageBuilder :: WB.Builder }
-  deriving (Semigroup, Monoid)
+newtype MessageBuilder = MessageBuilder { unMessageBuilder :: RB.BuildR }
+  deriving (Monoid, Semigroup)
 
 instance Show MessageBuilder where
   showsPrec prec builder =
@@ -120,21 +132,30 @@ instance Show MessageBuilder where
     where
       bytes' = toLazyByteString builder
 
--- | Retrieve the length of a message, in bytes
+-- | Convert a message builder to a 'RB.BuildR'.
+reverseMessageBuilder :: MessageBuilder -> RB.BuildR
+reverseMessageBuilder = unMessageBuilder
+
+-- | Eta-expands a function that produces a 'MessageBuilder', so that
+-- its input is not evaluated until the builder state is presented.
+--
+-- This odd combinator seems to help performance at times, though
+-- it may change behavior on nonterminating values of type @a@.
+etaMessageBuilder :: forall a . (a -> MessageBuilder) -> a -> MessageBuilder
+etaMessageBuilder = coerce (RB.etaBuildR @a)
+
+-- | Essentially 'foldMap', but iterates right to left for efficiency.
+vectorMessageBuilder ::
+  forall v a . Vector v a => (a -> MessageBuilder) -> v a -> MessageBuilder
+vectorMessageBuilder = coerce (RB.vectorBuildR @v @a)
+
+-- | O(n): Retrieve the length of a message, in bytes.
 messageLength :: MessageBuilder -> Word
-messageLength = WB.builderLength . unMessageBuilder
-
--- | Convert a message to a @"Proto3.Wire.Builder".`WB.Builder`@
-sizedMessageBuilder :: MessageBuilder -> WB.Builder
-sizedMessageBuilder = unMessageBuilder
-
--- | Convert a message to a @"Data.ByteString.Builder".`BB.Builder`@
-rawMessageBuilder :: MessageBuilder -> BB.Builder
-rawMessageBuilder = WB.rawBuilder . unMessageBuilder
+messageLength = fromIntegral . fst . RB.runBuildR . unMessageBuilder
 
 -- | Convert a message to a lazy `BL.ByteString`
 toLazyByteString :: MessageBuilder -> BL.ByteString
-toLazyByteString = WB.toLazyByteString . unMessageBuilder
+toLazyByteString = RB.toLazyByteString . unMessageBuilder
 
 -- | This lets you cast an arbitrary `ByteString` to a `MessageBuilder`, whether
 -- or not the `ByteString` corresponds to a valid serialized protobuf message
@@ -143,10 +164,27 @@ toLazyByteString = WB.toLazyByteString . unMessageBuilder
 -- you assemble malformed protobuf `MessageBuilder`s
 unsafeFromLazyByteString :: BL.ByteString -> MessageBuilder
 unsafeFromLazyByteString bytes' =
-    MessageBuilder { unMessageBuilder = WB.lazyByteString bytes' }
+    MessageBuilder { unMessageBuilder = RB.lazyByteString bytes' }
 
-base128Varint :: Word64 -> MessageBuilder
-base128Varint = MessageBuilder . WB.word64Base128LEVar
+newtype MessageBoundedPrim w
+  = MessageBoundedPrim { unMessageBoundedPrim :: Prim.BoundedPrim w }
+  deriving (ChooseNat, MonoidNat, SemigroupNat)
+
+liftBoundedPrim :: KnownNat w => MessageBoundedPrim w -> MessageBuilder
+liftBoundedPrim (MessageBoundedPrim p) = MessageBuilder (Prim.liftBoundedPrim p)
+{-# INLINE liftBoundedPrim #-}
+
+base128Varint32 :: Word32 -> MessageBoundedPrim 5
+base128Varint32 = MessageBoundedPrim . Prim.word32Base128LEVar
+{-# INLINE base128Varint32 #-}
+
+base128Varint64 :: Word64 -> MessageBoundedPrim 10
+base128Varint64 = MessageBoundedPrim . Prim.word64Base128LEVar
+{-# INLINE base128Varint64 #-}
+
+base128Varint64_inline :: Word64 -> MessageBoundedPrim 10
+base128Varint64_inline = MessageBoundedPrim . Prim.word64Base128LEVar_inline
+{-# INLINE base128Varint64_inline #-}
 
 wireType :: WireType -> Word8
 wireType Varint = 0
@@ -154,9 +192,10 @@ wireType Fixed32 = 5
 wireType Fixed64 = 1
 wireType LengthDelimited = 2
 
-fieldHeader :: FieldNumber -> WireType -> MessageBuilder
-fieldHeader num wt = base128Varint ((getFieldNumber num `shiftL` 3) .|.
-                                        fromIntegral (wireType wt))
+fieldHeader :: FieldNumber -> WireType -> MessageBoundedPrim 10
+fieldHeader = \num wt -> base128Varint64_inline
+    ((getFieldNumber num `shiftL` 3) .|. fromIntegral (wireType wt))
+{-# INLINE fieldHeader #-}
 
 -- | Encode a 32-bit "standard" integer
 --
@@ -164,17 +203,32 @@ fieldHeader num wt = base128Varint ((getFieldNumber num `shiftL` 3) .|.
 --
 -- >>> 1 `int32` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
+-- >>> 1 `int64` (-42)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\214\255\255\255\255\255\255\255\255\SOH"
+--
+-- NOTE: Protobuf encoding converts an @int32@ to a 64-bit unsigned value
+-- before encoding it, not a 32-bit value (which would be more efficient).
+--
+-- To quote the specification: "If you use int32 or int64 as the type for
+-- a negative number, the resulting varint is always ten bytes long..."
+-- <https://developers.google.com/protocol-buffers/docs/encoding#varints>
 int32 :: FieldNumber -> Int32 -> MessageBuilder
-int32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
+int32 = \num i -> liftBoundedPrim $
+    fieldHeader num Varint >+< base128Varint64 (fromIntegral i)
+{-# INLINE int32 #-}
 
 -- | Encode a 64-bit "standard" integer
 --
 -- For example:
 --
+-- >>> 1 `int32` 42
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 -- >>> 1 `int64` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\214\255\255\255\255\255\255\255\255\SOH"
 int64 :: FieldNumber -> Int64 -> MessageBuilder
-int64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
+int64 = \num i -> liftBoundedPrim $
+    fieldHeader num Varint >+< base128Varint64 (fromIntegral i)
+{-# INLINE int64 #-}
 
 -- | Encode a 32-bit unsigned integer
 --
@@ -183,7 +237,9 @@ int64 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 -- >>> 1 `uint32` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint32 :: FieldNumber -> Word32 -> MessageBuilder
-uint32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
+uint32 = \num i -> liftBoundedPrim $
+    fieldHeader num Varint >+< base128Varint32 i
+{-# INLINE uint32 #-}
 
 -- | Encode a 64-bit unsigned integer
 --
@@ -192,7 +248,9 @@ uint32 num i = fieldHeader num Varint <> base128Varint (fromIntegral i)
 -- >>> 1 `uint64` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint64 :: FieldNumber -> Word64 -> MessageBuilder
-uint64 num i = fieldHeader num Varint <> base128Varint i
+uint64 = \num i -> liftBoundedPrim $
+    fieldHeader num Varint >+< base128Varint64 i
+{-# INLINE uint64 #-}
 
 -- | Encode a 32-bit signed integer
 --
@@ -200,8 +258,14 @@ uint64 num i = fieldHeader num Varint <> base128Varint i
 --
 -- >>> 1 `sint32` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\bS"
+-- >>> 1 `sint32` maxBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\254\255\255\255\SI"
+-- >>> 1 `sint32` minBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\SI"
 sint32 :: FieldNumber -> Int32 -> MessageBuilder
-sint32 num i = int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
+sint32 = \num i ->
+  uint32 num (fromIntegral ((i `shiftL` 1) `xor` (i `shiftR` 31)))
+{-# INLINE sint32 #-}
 
 -- | Encode a 64-bit signed integer
 --
@@ -209,8 +273,14 @@ sint32 num i = int32 num ((i `shiftL` 1) `xor` (i `shiftR` 31))
 --
 -- >>> 1 `sint64` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\bS"
+-- >>> 1 `sint64` maxBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\254\255\255\255\255\255\255\255\255\SOH"
+-- >>> 1 `sint64` minBound
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\255\255\255\255\255\SOH"
 sint64 :: FieldNumber -> Int64 -> MessageBuilder
-sint64 num i = int64 num ((i `shiftL` 1) `xor` (i `shiftR` 63))
+sint64 = \num i ->
+  uint64 num (fromIntegral ((i `shiftL` 1) `xor` (i `shiftR` 63)))
+{-# INLINE sint64 #-}
 
 -- | Encode a fixed-width 32-bit integer
 --
@@ -219,7 +289,10 @@ sint64 num i = int64 num ((i `shiftL` 1) `xor` (i `shiftR` 63))
 -- >>> 1 `fixed32` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\r*\NUL\NUL\NUL"
 fixed32 :: FieldNumber -> Word32 -> MessageBuilder
-fixed32 num i = fieldHeader num Fixed32 <> MessageBuilder (WB.word32LE i)
+fixed32 = \num i -> liftBoundedPrim $
+    fieldHeader num Fixed32 >+<
+    MessageBoundedPrim (Prim.liftFixedPrim (Prim.word32LE i))
+{-# INLINE fixed32 #-}
 
 -- | Encode a fixed-width 64-bit integer
 --
@@ -228,7 +301,10 @@ fixed32 num i = fieldHeader num Fixed32 <> MessageBuilder (WB.word32LE i)
 -- >>> 1 `fixed64` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t*\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 fixed64 :: FieldNumber -> Word64 -> MessageBuilder
-fixed64 num i = fieldHeader num Fixed64 <> MessageBuilder (WB.word64LE i)
+fixed64 = \num i -> liftBoundedPrim $
+    fieldHeader num Fixed64 >+<
+    MessageBoundedPrim (Prim.liftFixedPrim (Prim.word64LE i))
+{-# INLINE fixed64 #-}
 
 -- | Encode a fixed-width signed 32-bit integer
 --
@@ -236,7 +312,10 @@ fixed64 num i = fieldHeader num Fixed64 <> MessageBuilder (WB.word64LE i)
 --
 -- > 1 `sfixed32` (-42)
 sfixed32 :: FieldNumber -> Int32 -> MessageBuilder
-sfixed32 num i = fieldHeader num Fixed32 <> MessageBuilder (WB.int32LE i)
+sfixed32 = \num i -> liftBoundedPrim $
+    fieldHeader num Fixed32 >+<
+    MessageBoundedPrim (Prim.liftFixedPrim (Prim.int32LE i))
+{-# INLINE sfixed32 #-}
 
 -- | Encode a fixed-width signed 64-bit integer
 --
@@ -245,7 +324,10 @@ sfixed32 num i = fieldHeader num Fixed32 <> MessageBuilder (WB.int32LE i)
 -- >>> 1 `sfixed64` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t\214\255\255\255\255\255\255\255"
 sfixed64 :: FieldNumber -> Int64 -> MessageBuilder
-sfixed64 num i = fieldHeader num Fixed64 <> MessageBuilder (WB.int64LE i)
+sfixed64 = \num i -> liftBoundedPrim $
+    fieldHeader num Fixed64 >+<
+    MessageBoundedPrim (Prim.liftFixedPrim (Prim.int64LE i))
+{-# INLINE sfixed64 #-}
 
 -- | Encode a floating point number
 --
@@ -254,7 +336,10 @@ sfixed64 num i = fieldHeader num Fixed64 <> MessageBuilder (WB.int64LE i)
 -- >>> 1 `float` 3.14
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\r\195\245H@"
 float :: FieldNumber -> Float -> MessageBuilder
-float num f = fieldHeader num Fixed32 <> MessageBuilder (WB.floatLE f)
+float = \num f -> liftBoundedPrim $
+    fieldHeader num Fixed32 >+<
+    MessageBoundedPrim (Prim.liftFixedPrim (Prim.floatLE f))
+{-# INLINE float #-}
 
 -- | Encode a double-precision number
 --
@@ -263,7 +348,10 @@ float num f = fieldHeader num Fixed32 <> MessageBuilder (WB.floatLE f)
 -- >>> 1 `double` 3.14
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t\US\133\235Q\184\RS\t@"
 double :: FieldNumber -> Double -> MessageBuilder
-double num d = fieldHeader num Fixed64 <> MessageBuilder (WB.doubleLE d)
+double = \num d -> liftBoundedPrim $
+    fieldHeader num Fixed64 >+<
+    MessageBoundedPrim (Prim.liftFixedPrim (Prim.doubleLE d))
+{-# INLINE double #-}
 
 -- | Encode a value with an enumerable type.
 --
@@ -289,8 +377,10 @@ double num d = fieldHeader num Fixed64 <> MessageBuilder (WB.doubleLE d)
 -- >>> 1 `enum` Triangle <> 2 `enum` Gap3
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\STX\DLE\ETX"
 enum :: ProtoEnum e => FieldNumber -> e -> MessageBuilder
-enum num e =
-  fieldHeader num Varint <> base128Varint (fromIntegral (fromProtoEnum e))
+enum = \num e -> liftBoundedPrim $
+    fieldHeader num Varint >+<
+    base128Varint32 (fromIntegral @Int32 @Word32 (fromProtoEnum e))
+{-# INLINE enum #-}
 
 -- | Encode a boolean value
 --
@@ -299,14 +389,20 @@ enum num e =
 -- >>> 1 `bool` True
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\SOH"
 bool :: FieldNumber -> Bool -> MessageBuilder
-bool num i = fieldHeader num Varint <> base128Varint (fromIntegral (fromEnum i))
+bool = \num b -> liftBoundedPrim $
+    fieldHeader num Varint >+<
+    MessageBoundedPrim
+      (Prim.liftFixedPrim (Prim.word8 (fromIntegral (fromEnum b))))
+      -- Using word8 instead of a varint encoder shrinks the width bound.
+{-# INLINE bool #-}
 
 -- | Encode a sequence of octets as a field of type 'bytes'.
 --
--- >>> 1 `bytes` (Proto3.Wire.Builder.stringUtf8 "testing")
+-- >>> 1 `bytes` (Proto3.Wire.Reverse.stringUtf8 "testing")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
-bytes :: FieldNumber -> WB.Builder -> MessageBuilder
+bytes :: FieldNumber -> RB.BuildR -> MessageBuilder
 bytes num = embedded num . MessageBuilder
+{-# INLINE bytes #-}
 
 -- | Encode a UTF-8 string.
 --
@@ -315,7 +411,8 @@ bytes num = embedded num . MessageBuilder
 -- >>> 1 `string` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 string :: FieldNumber -> String -> MessageBuilder
-string num = embedded num . MessageBuilder . WB.stringUtf8
+string num = embedded num . MessageBuilder . RB.stringUtf8
+{-# INLINE string #-}
 
 -- | Encode lazy `Text` as UTF-8
 --
@@ -324,16 +421,8 @@ string num = embedded num . MessageBuilder . WB.stringUtf8
 -- >>> 1 `text` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 text :: FieldNumber -> Text.Lazy.Text -> MessageBuilder
-text num txt =
-    embedded num (MessageBuilder (WB.unsafeMakeBuilder len (Text.Lazy.Encoding.encodeUtf8Builder txt)))
-  where
-    -- It would be nice to avoid actually allocating encoded chunks,
-    -- but we leave that enhancement for a future time.
-    len = Text.Lazy.foldrChunks op 0 txt
-    op chnk acc = fromIntegral (B.length (Text.Encoding.encodeUtf8 chnk)) + acc
-{-# INLINABLE text #-}
-  -- INLINABLE so that if the input is constant, the compiler
-  -- has the opportunity to express its length as a CAF.
+text num = embedded num . MessageBuilder . RB.lazyTextUtf8
+{-# INLINE text #-}
 
 -- | Encode a collection of bytes in the form of a strict 'B.ByteString'.
 --
@@ -342,7 +431,8 @@ text num txt =
 -- >>> 1 `byteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 byteString :: FieldNumber -> B.ByteString -> MessageBuilder
-byteString num bs = embedded num (MessageBuilder (WB.byteString bs))
+byteString num = embedded num . MessageBuilder . RB.byteString
+{-# INLINE byteString #-}
 
 -- | Encode a lazy bytestring.
 --
@@ -351,42 +441,139 @@ byteString num bs = embedded num (MessageBuilder (WB.byteString bs))
 -- >>> 1 `lazyByteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 lazyByteString :: FieldNumber -> BL.ByteString -> MessageBuilder
-lazyByteString num bl = embedded num (MessageBuilder (WB.lazyByteString bl))
+lazyByteString num = embedded num . MessageBuilder . RB.lazyByteString
+{-# INLINE lazyByteString #-}
 
 -- | Encode varints in the space-efficient packed format.
+-- But consider 'packedVarintsV', which may be faster.
 --
--- >>> 1 `packedVarints` [1, 2, 3]
+-- The values to be encoded are specified by mapping the elements of a vector.
+--
+-- >>> packedVarints 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
 packedVarints :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedVarints num = embedded num . foldMap base128Varint
+packedVarints num =
+    etaMessageBuilder
+      (embedded num . foldMap (liftBoundedPrim . base128Varint64))
+{-# INLINE packedVarints #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedVarints num . fmap f
+--
+-- >>> packedVarintsV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word64)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
+packedVarintsV ::
+  Vector v a => (a -> Word64) -> FieldNumber -> v a -> MessageBuilder
+packedVarintsV f num =
+    embedded num . vectorMessageBuilder (liftBoundedPrim . base128Varint64 . f)
+{-# INLINE packedVarintsV #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > packedVarintsV (fromIntegral . fromEnum) num
+--
+-- >>> packedBoolsV not 1 ([False, True] :: Data.Vector.Vector Bool)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
+packedBoolsV ::
+  Vector v a => (a -> Bool) -> FieldNumber -> v a -> MessageBuilder
+packedBoolsV f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrim op
+  where
+    op = Prim.word8 . fromIntegral . fromEnum . f
+{-# INLINE packedBoolsV #-}
 
 -- | Encode fixed-width Word32s in the space-efficient packed format.
+-- But consider 'packedFixed32V', which may be faster.
 --
--- >>> 1 `packedFixed32` [1, 2, 3]
+-- The values to be encoded are specified by mapping the elements of a vector.
+--
+-- >>> packedFixed32 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
 packedFixed32 :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
-packedFixed32 num = embedded num . foldMap (MessageBuilder . WB.word32LE)
+packedFixed32 num =
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.word32LE))
+{-# INLINE packedFixed32 #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedFixed32 num . fmap f
+--
+-- >>> packedFixed32V (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word32)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
+packedFixed32V ::
+  Vector v a => (a -> Word32) -> FieldNumber -> v a -> MessageBuilder
+packedFixed32V f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrim (Prim.word32LE . f)
+{-# INLINE packedFixed32V #-}
 
 -- | Encode fixed-width Word64s in the space-efficient packed format.
+-- But consider 'packedFixed64V', which may be faster.
 --
--- >>> 1 `packedFixed64` [1, 2, 3]
+-- The values to be encoded are specified by mapping the elements of a vector.
+--
+-- >>> packedFixed64 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 packedFixed64 :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedFixed64 num = embedded num . foldMap (MessageBuilder . WB.word64LE)
+packedFixed64 num =
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.word64LE))
+{-# INLINE packedFixed64 #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedFixed64 num . fmap f
+--
+-- >>> packedFixed64V (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word64)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
+packedFixed64V ::
+  Vector v a => (a -> Word64) -> FieldNumber -> v a -> MessageBuilder
+packedFixed64V f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrim (Prim.word64LE . f)
+{-# INLINE packedFixed64V #-}
 
 -- | Encode floats in the space-efficient packed format.
+-- But consider 'packedFloatsV', which may be faster.
 --
 -- >>> 1 `packedFloats` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
 packedFloats :: Foldable f => FieldNumber -> f Float -> MessageBuilder
-packedFloats num = embedded num . foldMap (MessageBuilder . WB.floatLE)
+packedFloats num =
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.floatLE))
+{-# INLINE packedFloats #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedFloats num . fmap f
+--
+-- >>> packedFloatsV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Float)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
+packedFloatsV ::
+  Vector v a => (a -> Float) -> FieldNumber -> v a -> MessageBuilder
+packedFloatsV f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrim (Prim.floatLE . f)
+{-# INLINE packedFloatsV #-}
 
 -- | Encode doubles in the space-efficient packed format.
+-- But consider 'packedDoublesV', which may be faster.
 --
 -- >>> 1 `packedDoubles` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
 packedDoubles :: Foldable f => FieldNumber -> f Double -> MessageBuilder
-packedDoubles num = embedded num . foldMap (MessageBuilder . WB.doubleLE)
+packedDoubles num =
+    etaMessageBuilder (embedded num . foldMap (MessageBuilder . RB.doubleLE))
+{-# INLINE packedDoubles #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedDoubles num . fmap f
+--
+-- >>> packedDoublesV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Double)
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
+packedDoublesV ::
+  Vector v a => (a -> Double) -> FieldNumber -> v a -> MessageBuilder
+packedDoublesV f num =
+    embedded num . MessageBuilder . Prim.vectorFixedPrim (Prim.doubleLE . f)
+{-# INLINE packedDoublesV #-}
 
 -- | Encode an embedded message.
 --
@@ -398,6 +585,10 @@ packedDoubles num = embedded num . foldMap (MessageBuilder . WB.doubleLE)
 -- >>> 1 `embedded` (1 `string` "this message" <> 2 `string` " is embedded")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\FS\n\fthis message\DC2\f is embedded"
 embedded :: FieldNumber -> MessageBuilder -> MessageBuilder
-embedded num bb = fieldHeader num LengthDelimited <>
-    base128Varint (fromIntegral (messageLength bb)) <>
-    bb
+embedded = \num (MessageBuilder bb) ->
+    MessageBuilder (RB.withLengthOf (Prim.liftBoundedPrim . prefix num) bb)
+  where
+    prefix num len =
+      unMessageBoundedPrim (fieldHeader num LengthDelimited) >+<
+      Prim.wordBase128LEVar (fromIntegral @Int @Word len)
+{-# INLINE embedded #-}
