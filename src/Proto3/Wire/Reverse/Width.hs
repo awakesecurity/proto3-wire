@@ -99,3 +99,6 @@ class ChooseNat b
 
     commMaxNat ::
       forall v w . Proxy# '(v, w) -> b (Max v w) -> b (Max w v)
+
+    {-# MINIMAL boolNat, assocLMaxNat, assocRMaxNat, commMaxNat
+              | ifNat, assocLMaxNat, assocRMaxNat, commMaxNat  #-}
