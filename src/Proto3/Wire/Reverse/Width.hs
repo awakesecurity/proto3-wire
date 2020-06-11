@@ -15,6 +15,7 @@
 -}
 
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -23,82 +24,90 @@
 -- | Augmentations to type classes such as 'Semigroup' and 'Monoid' that may
 -- be used to track the type-level width information of builder primitives.
 module Proto3.Wire.Reverse.Width
-  ( SemigroupNat(..)
-  , MonoidNat(..)
+  ( AssocPlusNat(..)
+  , CommPlusNat(..)
+  , PChoose(..)
   , Max
-  , ChooseNat(..)
+  , AssocMaxNat(..)
+  , CommMaxNat(..)
   ) where
 
 import Data.Type.Bool (If)
 import GHC.Exts (Proxy#)
-import GHC.TypeLits (KnownNat, type (<=?), type (+))
+import GHC.TypeLits (type (<=?), type (+))
+import Parameterized.Data.Semigroup (PNullary)
 
--- | Provides an associative operator that adds the type-level width.
-class SemigroupNat b
+-- | Associativity of '+' in type parameters.
+class AssocPlusNat n u v w
   where
-    -- | Associates to the left because we build in reverse.
-    (>+<) :: forall v w . (KnownNat v, KnownNat w) => b v -> b w -> b (v + w)
-    infixl 6 >+<
-
     assocLPlusNat ::
-      forall u v w . Proxy# '(u, v, w) -> b (u + (v + w)) -> b ((u + v) + w)
+      Proxy# '(u, v, w) ->
+      PNullary n (u + (v + w)) ->
+      PNullary n ((u + v) + w)
 
     assocRPlusNat ::
-      forall u v w . Proxy# '(u, v, w) -> b ((u + v) + w) -> b (u + (v + w))
+      Proxy# '(u, v, w) ->
+      PNullary n ((u + v) + w) ->
+      PNullary n (u + (v + w))
 
-    commPlusNat ::
-      forall v w . Proxy# '(v, w) -> b (v + w) -> b (w + v)
-
--- | Provides a zero-width identity for '>+<'.
---
--- (An alternative would be a `Control.Category.Category` in which
--- an offset change is specified instead of the underlying width,
--- but this approach leads to more straightforward builder types.)
-class SemigroupNat b =>
-      MonoidNat b
+-- | Commutativity of '+' in type parameters.
+class CommPlusNat n u v
   where
-    memptyNat :: b 0
+    commPlusNat ::
+      Proxy# '(u, v) ->
+      PNullary n (u + v) ->
+      PNullary n (v + u)
 
--- | The larger of two `GHC.TypeLits.Nat`s.
-type Max v w = If (w <=? v) v w
-
--- | Chooses between alternatives based on a condition.
+-- | Chooses between alternatives based on a condition,
+-- adjusting a type-level parameter appropriately.
 --
 -- Note that while this type class makes sense for bounded builder primitives,
--- it should not be instantiated for fixed-width primitives because the choice
--- between alternatives introduces a run-time variation in width.
-class ChooseNat b
+-- it should not be instantiated for fixed-width primitives of differing
+-- widths (at least, not without padding to equalize the widths) because
+-- the choice between alternatives introduces a run-time variation in width.
+-- Instead please use ordinary `Data.Bool.bool` or @if _ then _ else _@.
+class PChoose n f t w | f t -> w
   where
     -- | Like `Data.Bool.bool`, chooses the first argument on 'False'
     -- and the second on 'True', either way promoting the type-level
     -- `GHC.TypeLits.Nat` to the larger of the given `GHC.TypeLits.Nat`s.
     --
-    -- Defaults to the natural implementation in terms of 'ifNat'.
-    boolNat ::
-      forall v w. (KnownNat v, KnownNat w) => b v -> b w -> Bool -> b (Max v w)
-    boolNat f t b = ifNat b t f
-    {-# INLINE CONLIKE boolNat #-}
+    -- Defaults to the natural implementation in terms of 'pif'.
+    pbool :: PNullary n f -> PNullary n t -> Bool -> PNullary n w
+    pbool f t b = pif b t f
+    {-# INLINE CONLIKE pbool #-}
 
     -- | Like @if _ then _ else@, chooses the first argument on 'True'
     -- and the second on 'False', either way promoting the type-level
     -- `GHC.TypeLits.Nat` to the larger of the given `GHC.TypeLits.Nat`s.
     --
-    -- Defaults to the natural implementation in terms of 'boolNat'.
-    ifNat ::
-      forall v w. (KnownNat v, KnownNat w) => Bool -> b v -> b w -> b (Max w v)
-    ifNat c t e = boolNat e t c
-    {-# INLINE CONLIKE ifNat #-}
+    -- Defaults to the natural implementation in terms of 'pbool'.
+    pif :: Bool -> PNullary n t -> PNullary n f -> PNullary n w
+    pif c t e = pbool e t c
+    {-# INLINE CONLIKE pif #-}
 
+    {-# MINIMAL pbool | pif #-}
+
+-- | The larger of two `GHC.TypeLits.Nat`s.
+type Max u v = If (v <=? u) u v
+
+-- | Associativity of 'Max' in type parameters.
+class AssocMaxNat n u v w
+  where
     assocLMaxNat ::
-      forall u v w .
-      Proxy# '(u, v, w) -> b (Max u (Max v w)) -> b (Max (Max u v) w)
+      Proxy# '(u, v, w) ->
+      PNullary n (Max u (Max v w)) ->
+      PNullary n (Max (Max u v) w)
 
     assocRMaxNat ::
-      forall u v w .
-      Proxy# '(u, v, w) -> b (Max (Max u v) w) -> b (Max u (Max v w))
+      Proxy# '(u, v, w) ->
+      PNullary n (Max (Max u v) w) ->
+      PNullary n (Max u (Max v w))
 
+-- | Commutativity of 'Max' in type parameters.
+class CommMaxNat n u v
+  where
     commMaxNat ::
-      forall v w . Proxy# '(v, w) -> b (Max v w) -> b (Max w v)
-
-    {-# MINIMAL boolNat, assocLMaxNat, assocRMaxNat, commMaxNat
-              | ifNat, assocLMaxNat, assocRMaxNat, commMaxNat  #-}
+      Proxy# '(u, v) ->
+      PNullary n (Max u v) ->
+      PNullary n (Max v u)
