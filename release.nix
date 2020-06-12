@@ -10,6 +10,41 @@ let
 
   config   = { allowUnfree = true; };
 
+  upgrade = packageList: haskellPackagesNew: haskellPackagesOld:
+    let op = name: {
+          inherit name;
+          value = haskellPackagesNew.callPackage (./nix + "/${name}.nix") { };
+        };
+    in
+      builtins.listToAttrs (builtins.map op packageList);
+
+  dontCheck = haskell: packageList: haskellPackagesNew: haskellPackagesOld:
+    let op = name: {
+          inherit name;
+          value = haskell.lib.dontCheck haskellPackagesOld.${name};
+        };
+    in
+      builtins.listToAttrs (builtins.map op packageList);
+
+  jailbreak = haskell: packageList: haskellPackagesNew: haskellPackagesOld:
+    let op = name: {
+          inherit name;
+          value = haskell.lib.doJailbreak haskellPackagesOld.${name};
+        };
+    in
+      builtins.listToAttrs (builtins.map op packageList);
+
+  patch = haskell: packageList: haskellPackagesNew: haskellPackagesOld:
+    let op = name: {
+          inherit name;
+          value = haskell.lib.appendPatch haskellPackagesOld.${name}
+                                          (./nix + "/${name}.patch");
+        };
+    in
+      builtins.listToAttrs (builtins.map op packageList);
+
+  composeExtensionList = lib: lib.foldr lib.composeExtensions (_: _: {});
+
   overlays = [
     (newPkgs: oldPkgs: rec {
 
@@ -22,13 +57,34 @@ let
                   "proto3-wire" = ./.;
                 };
 
+                upgradeOverrides = upgrade
+                  [ "parameterized"
+                  ];
+
+                patchOverrides = patch haskell
+                  [ "parameterized"
+                  ];
+
+                dontCheckOverrides = dontCheck haskell
+                  [ # Add package name strings here.
+                  ];
+
+                jailbreakOverrides = jailbreak haskell
+                  [ # Add package name strings here.
+                  ];
+
                 manualOverrides = haskellPackagesNew: haskellPackagesOld: {
                 };
 
               in
-                newPkgs.lib.composeExtensions
-                  packageSourceOverrides
-                  manualOverrides;
+                composeExtensionList newPkgs.lib
+                  [ packageSourceOverrides
+                    upgradeOverrides
+                    patchOverrides
+                    dontCheckOverrides
+                    jailbreakOverrides
+                    manualOverrides
+                  ];
           };
         };
       };

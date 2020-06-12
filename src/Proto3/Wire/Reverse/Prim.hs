@@ -21,6 +21,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RoleAnnotations #-}
@@ -29,13 +31,16 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Proto3.Wire.Reverse.Prim
   ( -- * Combine types such as `BoundedPrim` and `FixedPrim`.
-    SemigroupNat(..)
-  , MonoidNat(..)
+    AssocPlusNat(..)
+  , CommPlusNat(..)
+  , PChoose(..)
   , Max
-  , ChooseNat(..)
+  , AssocMaxNat(..)
+  , CommMaxNat(..)
 
     -- * Architectural attributes.
   , StoreMethod(..)
@@ -120,10 +125,15 @@ import           GHC.Types                     ( Char(..), Double(..),
                                                  Float(..) )
 import           GHC.Word                      ( Word(..), Word8(..),
                                                  Word32(..), Word64(..) )
+import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
+                                                 (&<>) )
+import           Parameterized.Data.Monoid     ( PMEmpty(..) )
 import           Proto3.Wire.Reverse.Internal
-import           Proto3.Wire.Reverse.Width     ( SemigroupNat(..),
-                                                 MonoidNat(..),
-                                                 Max, ChooseNat(..) )
+import           Proto3.Wire.Reverse.Width     ( AssocPlusNat(..),
+                                                 CommPlusNat(..),
+                                                 PChoose(..),
+                                                 Max, AssocMaxNat(..),
+                                                 CommMaxNat(..) )
 
 #include <MachDeps.h>  /* for WORDS_BIGENDIAN and WORD_SIZE_IN_BITS */
 
@@ -182,36 +192,48 @@ newtype BoundedPrim (w :: Nat) = BoundedPrim BuildR
 
 type role BoundedPrim nominal
 
-instance SemigroupNat BoundedPrim
-  where
-    (>+<) = composeBoundedPrim
-    {-# INLINE CONLIKE (>+<) #-}
+type instance PNullary BoundedPrim width = BoundedPrim width
 
-    assocLPlusNat p = assocLPlusNatBoundedPrim p
+instance (w1 + w2) ~ w3 =>
+         PSemigroup BoundedPrim w1 w2 w3
+  where
+    pmappend = composeBoundedPrim
+    {-# INLINE CONLIKE pmappend #-}
+
+instance AssocPlusNat BoundedPrim u v w
+  where
+    assocLPlusNat = assocLPlusNatBoundedPrim
     {-# INLINE CONLIKE assocLPlusNat #-}
 
-    assocRPlusNat p = assocRPlusNatBoundedPrim p
+    assocRPlusNat = assocRPlusNatBoundedPrim
     {-# INLINE CONLIKE assocRPlusNat #-}
 
+instance CommPlusNat BoundedPrim u v
+  where
     commPlusNat _ (BoundedPrim f) = BoundedPrim f
     {-# INLINE CONLIKE commPlusNat #-}
 
-instance MonoidNat BoundedPrim
+instance PMEmpty BoundedPrim 0
   where
-    memptyNat = BoundedPrim mempty
-    {-# INLINE CONLIKE memptyNat #-}
+    pmempty = BoundedPrim mempty
+    {-# INLINE CONLIKE pmempty #-}
 
-instance ChooseNat BoundedPrim
+instance Max u v ~ w =>
+         PChoose BoundedPrim u v w
   where
-    boolNat = \(BoundedPrim f) (BoundedPrim g) -> BoundedPrim . bool f g
-    {-# INLINE CONLIKE boolNat #-}
+    pbool = \(BoundedPrim f) (BoundedPrim g) -> BoundedPrim . bool f g
+    {-# INLINE CONLIKE pbool #-}
 
+instance AssocMaxNat BoundedPrim u v w
+  where
     assocLMaxNat = \_ (BoundedPrim f) -> BoundedPrim f
     {-# INLINE CONLIKE assocLMaxNat #-}
 
     assocRMaxNat = \_ (BoundedPrim f) -> BoundedPrim f
     {-# INLINE CONLIKE assocRMaxNat #-}
 
+instance CommMaxNat BoundedPrim u v
+  where
     commMaxNat = \_ (BoundedPrim f) -> BoundedPrim f
     {-# INLINE CONLIKE commMaxNat #-}
 
@@ -231,7 +253,7 @@ assocRPlusNatBoundedPrim ::
 assocRPlusNatBoundedPrim = \_ (BoundedPrim f) -> BoundedPrim f
 {-# INLINE CONLIKE assocRPlusNatBoundedPrim #-}
 
--- | Needed for rewrite rules; normally you would use '(>+<)'.
+-- | Needed for rewrite rules; normally you would use 'pmappend' or '(&<>)'.
 composeBoundedPrim :: BoundedPrim v -> BoundedPrim w -> BoundedPrim (v + w)
 composeBoundedPrim =
   \(BoundedPrim f) (BoundedPrim g) -> BoundedPrim (f <> g)
@@ -286,28 +308,35 @@ newtype FixedPrim (w :: Nat) = FixedPrim
 
 type role FixedPrim nominal
 
-instance SemigroupNat FixedPrim
-  where
-    (>+<) = \(FixedPrim f :: FixedPrim w) (FixedPrim g) ->
-      case fromInteger (natVal' (proxy# :: Proxy# w)) of
-        I# w -> FixedPrim
-          ( \v0 u0 s0 o -> case g v0 u0 s0 (o +# w) of
-             (# v1, u1, s1 #) -> f v1 u1 s1 o )
-    {-# INLINE CONLIKE (>+<) #-}
+type instance PNullary FixedPrim width = FixedPrim width
 
+instance ((w1 + w2) ~ w3, KnownNat w1) =>
+         PSemigroup FixedPrim w1 w2 w3
+  where
+    pmappend = \(FixedPrim f) (FixedPrim g) ->
+      case fromInteger (natVal' (proxy# :: Proxy# w1)) of
+        I# w1 -> FixedPrim
+          ( \v0 u0 s0 o -> case g v0 u0 s0 (o +# w1) of
+             (# v1, u1, s1 #) -> f v1 u1 s1 o )
+    {-# INLINE CONLIKE pmappend #-}
+
+instance AssocPlusNat FixedPrim u v w
+  where
     assocLPlusNat = \_ (FixedPrim f) -> FixedPrim f
     {-# INLINE CONLIKE assocLPlusNat #-}
 
     assocRPlusNat = \_ (FixedPrim f) -> FixedPrim f
     {-# INLINE CONLIKE assocRPlusNat #-}
 
+instance CommPlusNat FixedPrim u v
+  where
     commPlusNat = \_ (FixedPrim f) -> FixedPrim f
     {-# INLINE CONLIKE commPlusNat #-}
 
-instance MonoidNat FixedPrim
+instance PMEmpty FixedPrim 0
   where
-    memptyNat = FixedPrim (\v u s _ -> (# v, u, s #))
-    {-# INLINE CONLIKE memptyNat #-}
+    pmempty = FixedPrim (\v u s _ -> (# v, u, s #))
+    {-# INLINE CONLIKE pmempty #-}
 
 -- | Executes the given fixed primitive and adjusts the current address.
 liftFixedPrim :: forall w . KnownNat w => FixedPrim w -> BoundedPrim w
@@ -325,7 +354,7 @@ liftFixedPrim = \(FixedPrim f) -> BoundedPrim (BuildR (g f))
     forall (f1 :: KnownNat w1 => FixedPrim w1)
            (f2 :: KnownNat (w1 + w2) => FixedPrim w2).
     composeBoundedPrim (liftFixedPrim f1) (liftFixedPrim f2)
-  = liftFixedPrim (f1 >+< f2)
+  = liftFixedPrim (pmappend f1 f2)
 
 "composeBoundedPrim/liftFixedPrim/assoc_r"
     forall (f1 :: KnownNat w1 => FixedPrim w1)
@@ -334,7 +363,7 @@ liftFixedPrim = \(FixedPrim f) -> BoundedPrim (BuildR (g f))
     composeBoundedPrim (liftFixedPrim f1)
                        (composeBoundedPrim (liftFixedPrim f2) b3)
   = assocRPlusNatBoundedPrim (proxy# :: Proxy# '(w1, w2, w3))
-      (composeBoundedPrim (liftFixedPrim (f1 >+< f2)) b3)
+      (composeBoundedPrim (liftFixedPrim (pmappend f1 f2)) b3)
 
 "composeBoundedPrim/liftFixedPrim/assoc_l"
     forall (b1 :: BoundedPrim w1)
@@ -343,7 +372,7 @@ liftFixedPrim = \(FixedPrim f) -> BoundedPrim (BuildR (g f))
     composeBoundedPrim (composeBoundedPrim b1 (liftFixedPrim f2))
                        (liftFixedPrim f3)
   = assocLPlusNatBoundedPrim (proxy# :: Proxy# '(w1, w2, w3))
-      (composeBoundedPrim b1 (liftFixedPrim (f2 >+< f3)))
+      (composeBoundedPrim b1 (liftFixedPrim (pmappend f2 f3)))
 
 "withLengthOf#/unsafeLiftBoundedPrim/liftFixedPrim" forall f w g .
     withLengthOf# f (unsafeLiftBoundedPrim w (liftFixedPrim g))
@@ -390,8 +419,8 @@ word8Shift s x = word8 (fromIntegral (shiftR x s))
 -- | Shifts right by @s@ bits, then writes the least significant 16-bit word.
 word16Shift :: ByteOrder -> Int -> Word -> FixedPrim 2
 word16Shift bo = case bo of
-    BigEndian    -> \(!s) (!x) -> p (s + h) x >+< p s x
-    LittleEndian -> \(!s) (!x) -> p s x >+< p (s + h) x
+    BigEndian    -> \(!s) (!x) -> p (s + h) x &<> p s x
+    LittleEndian -> \(!s) (!x) -> p s x &<> p (s + h) x
   where
     h = 8
     p = word8Shift
@@ -399,8 +428,8 @@ word16Shift bo = case bo of
 -- | Writes the least significant 32-bit word, one byte at a time.
 word32Shift :: ByteOrder -> Word -> FixedPrim 4
 word32Shift bo = case bo of
-    BigEndian    -> \(!x) -> p h x >+< p 0 x
-    LittleEndian -> \(!x) -> p 0 x >+< p h x
+    BigEndian    -> \(!x) -> p h x &<> p 0 x
+    LittleEndian -> \(!x) -> p 0 x &<> p h x
   where
     h = 16
     p = word16Shift bo
@@ -408,8 +437,8 @@ word32Shift bo = case bo of
 -- | Writes one byte at a time.
 word64Shift :: ByteOrder -> Word64 -> FixedPrim 8
 word64Shift bo = case bo of
-    BigEndian    -> \(!x) -> p (h x) >+< p x
-    LittleEndian -> \(!x) -> p x >+< p (h x)
+    BigEndian    -> \(!x) -> p (h x) &<> p x
+    LittleEndian -> \(!x) -> p x &<> p (h x)
   where
     h x = shiftR x 32
     p = word32Shift bo . fromIntegral @Word64 @Word
@@ -624,7 +653,7 @@ charUtf8 = \ch -> case fromIntegral (ord ch) of W# x -> wordUtf8 x
       (Word# -> FixedPrim v) ->
       (Word# -> BoundedPrim w) ->
       Word# -> BoundedPrim (Max w v)
-    choose = \t f g x -> ifNat (W# x <= t) (liftFixedPrim (f x)) (g x)
+    choose = \t f g x -> pif (W# x <= t) (liftFixedPrim (f x)) (g x)
       -- We have observed GHC v8.6.5 jumping on the 'False' branch
       -- and falling through on the 'True' branch.  We set up our
       -- condition to favor lower character codes.
@@ -635,7 +664,7 @@ charUtf8 = \ch -> case fromIntegral (ord ch) of W# x -> wordUtf8 x
       (Word# -> FixedPrim n) ->
       Word# ->
       FixedPrim (n + 1)
-    lsb = \p x -> p (uncheckedShiftRL# x 6#) >+<
+    lsb = \p x -> p (uncheckedShiftRL# x 6#) &<>
                   word8 (W8# (plusWord# 0x80## (and# x 0x3F##)))
     {-# INLINE lsb #-}
 
@@ -703,7 +732,7 @@ wordBase128LEVar_choose ::
   (Word# -> BoundedPrim w) ->
   Word# -> BoundedPrim (Max w v)
 wordBase128LEVar_choose = \d f g x ->
-  ifNat (W# x <= shiftL 1 (7 * d) - 1) (liftFixedPrim (f 0## x)) (g x)
+  pif (W# x <= shiftL 1 (7 * d) - 1) (liftFixedPrim (f 0## x)) (g x)
   -- We have observed GHC v8.6.5 jumping on the 'False' branch
   -- and falling through on the 'True' branch.  We set up our
   -- condition to favor lower numeric values.
@@ -715,7 +744,7 @@ wordBase128LE_msb ::
   (Word# -> Word# -> FixedPrim n) ->
   Word# -> Word# -> FixedPrim (n + 1)
 wordBase128LE_msb = \p m x ->
-    p 0x80## x >+< word8 (W8# (or# m (uncheckedShiftRL# x s)))
+    p 0x80## x &<> word8 (W8# (or# m (uncheckedShiftRL# x s)))
   where
     !(I# s) = 7 * fromInteger (natVal' (proxy# :: Proxy# n))
 {-# INLINE wordBase128LE_msb #-}
@@ -764,7 +793,7 @@ word28Base128LE = wordBase128LE_p4 0x80##
 -- `Proto3.Wire.Reverse.word64Base128LEVar`.
 word64Base128LEVar :: Word64 -> BoundedPrim 10
 word64Base128LEVar = \(W64# x) ->
-    ifNat (W64# x <= fromIntegral (maxBound :: Word32))
+    pif (W64# x <= fromIntegral (maxBound :: Word32))
           (word32Base128LEVar (fromIntegral (W64# x)))
           (word64Base128LEVar_big x)
 {-# INLINE word64Base128LEVar #-}
@@ -773,20 +802,20 @@ word64Base128LEVar = \(W64# x) ->
 -- the other hand, inlining an application to a constant may shrink your code.
 word64Base128LEVar_inline :: Word64 -> BoundedPrim 10
 word64Base128LEVar_inline = \(W64# x) ->
-    ifNat (W64# x <= fromIntegral (maxBound :: Word32))
+    pif (W64# x <= fromIntegral (maxBound :: Word32))
           (word32Base128LEVar (fromIntegral (W64# x)))
           (inline (word64Base128LEVar_big x))
 {-# INLINE word64Base128LEVar_inline #-}
 
 -- | The input must be at least 2^32.
 word64Base128LEVar_big :: WORD64 -> BoundedPrim 10
-word64Base128LEVar_big x = ifNat (W64# x <= shiftL 1 60 - 1) p60 p64
+word64Base128LEVar_big x = pif (W64# x <= shiftL 1 60 - 1) p60 p64
   where
-    p60 = liftFixedPrim (word28Base128LE x32) >+<
+    p60 = liftFixedPrim (word28Base128LE x32) &<>
           word32Base128LEVar (W32# (shR 28))
 
-    p64 = liftFixedPrim (word28Base128LE x32) >+<
-          liftFixedPrim (word28Base128LE (shR 28)) >+<
+    p64 = ( liftFixedPrim (word28Base128LE x32) &<>
+            liftFixedPrim (word28Base128LE (shR 28)) ) &<>
           word14Base128LEVar (shR 56)
 
     x32 = case fromIntegral (W64# x) of W32# y -> y

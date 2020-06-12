@@ -40,10 +40,15 @@
 
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 module Proto3.Wire.Encode
     ( -- * `MessageBuilder` type
@@ -102,11 +107,12 @@ import           Data.Int                      ( Int32, Int64 )
 import qualified Data.Text.Lazy                as Text.Lazy
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word32, Word64 )
-import           GHC.TypeLits                  ( KnownNat )
+import           GHC.TypeLits                  ( KnownNat, Nat, type (+) )
+import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
+                                                 (&<>) )
+import           Parameterized.Data.Monoid     ( PMEmpty(..) )
 import qualified Proto3.Wire.Reverse           as RB
 import qualified Proto3.Wire.Reverse.Prim      as Prim
-import           Proto3.Wire.Reverse.Prim      ( ChooseNat, MonoidNat,
-                                                 SemigroupNat(..) )
 import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 
@@ -168,7 +174,51 @@ unsafeFromLazyByteString bytes' =
 
 newtype MessageBoundedPrim w
   = MessageBoundedPrim { unMessageBoundedPrim :: Prim.BoundedPrim w }
-  deriving (ChooseNat, MonoidNat, SemigroupNat)
+
+type instance PNullary MessageBoundedPrim width = MessageBoundedPrim width
+
+instance (w1 + w2) ~ w3 =>
+         PSemigroup MessageBoundedPrim w1 w2 w3
+  where
+    pmappend = coerce (pmappend @Nat @Prim.BoundedPrim)
+    {-# INLINE CONLIKE pmappend #-}
+
+instance Prim.AssocPlusNat MessageBoundedPrim u v w
+  where
+    assocLPlusNat = \p -> coerce (Prim.assocLPlusNat @Prim.BoundedPrim p)
+    {-# INLINE CONLIKE assocLPlusNat #-}
+
+    assocRPlusNat = \p -> coerce (Prim.assocRPlusNat @Prim.BoundedPrim p)
+    {-# INLINE CONLIKE assocRPlusNat #-}
+
+instance Prim.CommPlusNat MessageBoundedPrim u v
+  where
+    commPlusNat = \p -> coerce (Prim.commPlusNat @Prim.BoundedPrim p)
+    {-# INLINE CONLIKE commPlusNat #-}
+
+instance PMEmpty MessageBoundedPrim 0
+  where
+    pmempty = coerce (pmempty @Nat @Prim.BoundedPrim)
+    {-# INLINE CONLIKE pmempty #-}
+
+instance Prim.Max u v ~ w =>
+         Prim.PChoose MessageBoundedPrim u v w
+  where
+    pbool = coerce (Prim.pbool @Prim.BoundedPrim)
+    {-# INLINE CONLIKE pbool #-}
+
+instance Prim.AssocMaxNat MessageBoundedPrim u v w
+  where
+    assocLMaxNat = \p -> coerce (Prim.assocLMaxNat @Prim.BoundedPrim p)
+    {-# INLINE CONLIKE assocLMaxNat #-}
+
+    assocRMaxNat = \p -> coerce (Prim.assocRMaxNat @Prim.BoundedPrim p)
+    {-# INLINE CONLIKE assocRMaxNat #-}
+
+instance Prim.CommMaxNat MessageBoundedPrim u v
+  where
+    commMaxNat = \p -> coerce (Prim.commMaxNat @Prim.BoundedPrim p)
+    {-# INLINE CONLIKE commMaxNat #-}
 
 liftBoundedPrim :: KnownNat w => MessageBoundedPrim w -> MessageBuilder
 liftBoundedPrim (MessageBoundedPrim p) = MessageBuilder (Prim.liftBoundedPrim p)
@@ -214,7 +264,7 @@ fieldHeader = \num wt -> base128Varint64_inline
 -- <https://developers.google.com/protocol-buffers/docs/encoding#varints>
 int32 :: FieldNumber -> Int32 -> MessageBuilder
 int32 = \num i -> liftBoundedPrim $
-    fieldHeader num Varint >+< base128Varint64 (fromIntegral i)
+    fieldHeader num Varint &<> base128Varint64 (fromIntegral i)
 {-# INLINE int32 #-}
 
 -- | Encode a 64-bit "standard" integer
@@ -227,7 +277,7 @@ int32 = \num i -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\214\255\255\255\255\255\255\255\255\SOH"
 int64 :: FieldNumber -> Int64 -> MessageBuilder
 int64 = \num i -> liftBoundedPrim $
-    fieldHeader num Varint >+< base128Varint64 (fromIntegral i)
+    fieldHeader num Varint &<> base128Varint64 (fromIntegral i)
 {-# INLINE int64 #-}
 
 -- | Encode a 32-bit unsigned integer
@@ -238,7 +288,7 @@ int64 = \num i -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint32 :: FieldNumber -> Word32 -> MessageBuilder
 uint32 = \num i -> liftBoundedPrim $
-    fieldHeader num Varint >+< base128Varint32 i
+    fieldHeader num Varint &<> base128Varint32 i
 {-# INLINE uint32 #-}
 
 -- | Encode a 64-bit unsigned integer
@@ -249,7 +299,7 @@ uint32 = \num i -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint64 :: FieldNumber -> Word64 -> MessageBuilder
 uint64 = \num i -> liftBoundedPrim $
-    fieldHeader num Varint >+< base128Varint64 i
+    fieldHeader num Varint &<> base128Varint64 i
 {-# INLINE uint64 #-}
 
 -- | Encode a 32-bit signed integer
@@ -290,7 +340,7 @@ sint64 = \num i ->
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\r*\NUL\NUL\NUL"
 fixed32 :: FieldNumber -> Word32 -> MessageBuilder
 fixed32 = \num i -> liftBoundedPrim $
-    fieldHeader num Fixed32 >+<
+    fieldHeader num Fixed32 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.word32LE i))
 {-# INLINE fixed32 #-}
 
@@ -302,7 +352,7 @@ fixed32 = \num i -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t*\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 fixed64 :: FieldNumber -> Word64 -> MessageBuilder
 fixed64 = \num i -> liftBoundedPrim $
-    fieldHeader num Fixed64 >+<
+    fieldHeader num Fixed64 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.word64LE i))
 {-# INLINE fixed64 #-}
 
@@ -313,7 +363,7 @@ fixed64 = \num i -> liftBoundedPrim $
 -- > 1 `sfixed32` (-42)
 sfixed32 :: FieldNumber -> Int32 -> MessageBuilder
 sfixed32 = \num i -> liftBoundedPrim $
-    fieldHeader num Fixed32 >+<
+    fieldHeader num Fixed32 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.int32LE i))
 {-# INLINE sfixed32 #-}
 
@@ -325,7 +375,7 @@ sfixed32 = \num i -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t\214\255\255\255\255\255\255\255"
 sfixed64 :: FieldNumber -> Int64 -> MessageBuilder
 sfixed64 = \num i -> liftBoundedPrim $
-    fieldHeader num Fixed64 >+<
+    fieldHeader num Fixed64 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.int64LE i))
 {-# INLINE sfixed64 #-}
 
@@ -337,7 +387,7 @@ sfixed64 = \num i -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\r\195\245H@"
 float :: FieldNumber -> Float -> MessageBuilder
 float = \num f -> liftBoundedPrim $
-    fieldHeader num Fixed32 >+<
+    fieldHeader num Fixed32 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.floatLE f))
 {-# INLINE float #-}
 
@@ -349,7 +399,7 @@ float = \num f -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t\US\133\235Q\184\RS\t@"
 double :: FieldNumber -> Double -> MessageBuilder
 double = \num d -> liftBoundedPrim $
-    fieldHeader num Fixed64 >+<
+    fieldHeader num Fixed64 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.doubleLE d))
 {-# INLINE double #-}
 
@@ -378,7 +428,7 @@ double = \num d -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\STX\DLE\ETX"
 enum :: ProtoEnum e => FieldNumber -> e -> MessageBuilder
 enum = \num e -> liftBoundedPrim $
-    fieldHeader num Varint >+<
+    fieldHeader num Varint &<>
     base128Varint32 (fromIntegral @Int32 @Word32 (fromProtoEnum e))
 {-# INLINE enum #-}
 
@@ -390,7 +440,7 @@ enum = \num e -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\SOH"
 bool :: FieldNumber -> Bool -> MessageBuilder
 bool = \num b -> liftBoundedPrim $
-    fieldHeader num Varint >+<
+    fieldHeader num Varint &<>
     MessageBoundedPrim
       (Prim.liftFixedPrim (Prim.word8 (fromIntegral (fromEnum b))))
       -- Using word8 instead of a varint encoder shrinks the width bound.
@@ -589,6 +639,6 @@ embedded = \num (MessageBuilder bb) ->
     MessageBuilder (RB.withLengthOf (Prim.liftBoundedPrim . prefix num) bb)
   where
     prefix num len =
-      unMessageBoundedPrim (fieldHeader num LengthDelimited) >+<
+      unMessageBoundedPrim (fieldHeader num LengthDelimited) &<>
       Prim.wordBase128LEVar (fromIntegral @Int @Word len)
 {-# INLINE embedded #-}
