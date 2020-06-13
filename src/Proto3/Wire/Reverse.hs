@@ -99,9 +99,6 @@ import qualified Data.Text.Lazy                as TL
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           Foreign                       ( castPtr )
-import           GHC.Exts                      ( Word(..) )
-import           GHC.Types                     ( Char(..), Double(..),
-                                                 Float(..) )
 import           Proto3.Wire.Reverse.Internal
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 

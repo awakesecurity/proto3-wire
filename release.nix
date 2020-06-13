@@ -3,12 +3,13 @@
 let
   fetchNixpkgs = import ./nix/fetchNixpkgs.nix;
 
-  nixpkgs = fetchNixpkgs {
-    rev    = "d2a2ec2ebe49c42127cbf316d215a64c60d68fde";
-    sha256 = "09p9cr07frsqh7vip2i7cp86xnafg1pxhbnphx0q4sd5bvilqpfm";
+  nixpkgsRelease = "20.03";
+  unpatchedNixpkgs = fetchNixpkgs {
+    rev    = "fdfd5ab05444c38a006cb107d7d1ee8cb0b15719";
+    sha256 = "17hsjpjahl0hff3z2khrcwxygjyyrav2pia3qqlli0sgywfrgf95";
   };
 
-  config   = { allowUnfree = true; };
+  config = { allowUnfree = true; };
 
   upgrade = packageList: haskellPackagesNew: haskellPackagesOld:
     let op = name: {
@@ -50,7 +51,7 @@ let
 
       haskell = oldPkgs.haskell // {
         packages = oldPkgs.haskell.packages // {
-          "${compiler}" = oldPkgs.haskell.packages."${compiler}".override {
+          "${compiler}" = oldPkgs.haskell.packages.${compiler}.override {
             overrides =
               let
                 packageSourceOverrides = oldPkgs.haskell.lib.packageSourceOverrides {
@@ -58,7 +59,12 @@ let
                 };
 
                 upgradeOverrides = upgrade
-                  [ "parameterized"
+                  [ "ChasingBottoms"
+                    "comonad"
+                    "distributive"
+                    "doctest"
+                    "parameterized"
+                    "semigroupoids"
                   ];
 
                 patchOverrides = patch haskell
@@ -66,7 +72,7 @@ let
                   ];
 
                 dontCheckOverrides = dontCheck haskell
-                  [ # Add package name strings here.
+                  [ "doctest"
                   ];
 
                 jailbreakOverrides = jailbreak haskell
@@ -90,6 +96,27 @@ let
       };
     })
   ];
+
+  unpatchedPkgs = import unpatchedNixpkgs { inherit config overlays; };
+
+  # https://github.com/NixOS/nixpkgs/pull/85446
+  nixpkgs = unpatchedPkgs.stdenvNoCC.mkDerivation {
+    name = "nixpkgs-${nixpkgsRelease}-patched";
+
+    src = unpatchedNixpkgs;
+
+    # Backport fix <https://github.com/NixOS/nixpkgs/pull/85446> to 20.03:
+    patches = [ ./nix/with-packages-wrapper.patch ];
+
+    phases = [ "unpackPhase" "patchPhase" "installPhase" ];
+
+    installPhase = ''
+      mkdir -p $out
+      cp -R ./ $out/
+    '';
+
+    preferLocalBuild = true;
+  };
 
   pkgs = import nixpkgs { inherit config overlays; };
 
