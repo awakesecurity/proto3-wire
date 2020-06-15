@@ -18,6 +18,7 @@
 -- Breaking changes will be more frequent in this module; use with caution.
 
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE UnboxedTuples #-}
 
@@ -75,6 +76,12 @@ import           GHC.Ptr                       ( Ptr(..), plusPtr )
 import           GHC.Stable                    ( StablePtr(..) )
 import           GHC.STRef                     ( STRef(..) )
 import           System.IO.Unsafe              ( unsafePerformIO )
+
+#if MIN_VERSION_primitive(0,7,0)
+#define PTR P.Ptr
+#else
+#define PTR P.Addr
+#endif
 
 -- $setup
 -- >>> :set -XOverloadedStrings
@@ -354,7 +361,7 @@ newBuffer# sealed total stateVar stateSP unused s0 =
     IO go = do
       let allocation = metaDataSize + I# unused
       buf <- P.newAlignedPinnedByteArray allocation metaDataAlign
-      let !(P.Addr base) = P.mutableByteArrayContents buf
+      let !(PTR base) = P.mutableByteArrayContents buf
           !v = plusPtr (Ptr base) (metaDataSize + I# unused)
           !m = plusPtr (Ptr base) metaDataSize
       writeState m (StablePtr stateSP)
@@ -445,7 +452,7 @@ sealBuffer# addr unused s0 =
         then
           pure (oldSealed, total, stateVar, statePtr, Just buffer)
         else do
-          let !(P.Addr base) = P.mutableByteArrayContents buffer
+          let !(PTR base) = P.mutableByteArrayContents buffer
               !(P.MutableByteArray mba) = buffer
               fp = ForeignPtr base (PlainPtr mba)
               offset = metaDataSize + I# unused
@@ -552,7 +559,7 @@ afterPrependChunks# SealedState
         -- Recycle the old current buffer, from which
         -- we already copied what we wished to keep.
         let u1 = P.sizeofMutableByteArray buf - metaDataSize
-            !(P.Addr base) = P.mutableByteArrayContents buf
+            !(PTR base) = P.mutableByteArrayContents buf
             !v1 = plusPtr (Ptr base) (metaDataSize + u1)
             !m = plusPtr (Ptr base) metaDataSize
         writeSpace m (u1 + total)
