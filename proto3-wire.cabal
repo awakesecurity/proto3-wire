@@ -28,7 +28,7 @@ library
                        cereal >= 0.5.1 && <0.6,
                        containers >=0.5 && < 0.7,
                        deepseq ==1.4.*,
-                       ghc-prim >=0.5.3 && <0.7,
+                       ghc-prim >=0.5.3 && <0.8,
                        hashable <1.4,
                        parameterized >=0.5.0.0 && <1,
                        primitive >=0.6.4 && <0.8,
