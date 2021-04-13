@@ -199,7 +199,7 @@ gwireType 2 = return LengthDelimited
 gwireType wt = Left $ "wireType got unknown wire type: " ++ show wt
 
 safeSplit :: Int -> B.ByteString -> Either String (B.ByteString, B.ByteString)
-safeSplit !i! b | B.length b < i = Left "failed to parse varint128: not enough bytes"
+safeSplit !i !b | B.length b < i = Left "failed to parse varint128: not enough bytes"
                 | otherwise = Right $ B.splitAt i b
 
 takeWT :: WireType -> B.ByteString -> Either String (ParsedField, B.ByteString)
