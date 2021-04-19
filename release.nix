@@ -1,125 +1,43 @@
-{ compiler ? "ghc865" }:
+{ compiler ? "ghc884" }:
 
 let
-  fetchNixpkgs = import ./nix/fetchNixpkgs.nix;
-
-  nixpkgsRelease = "20.03";
-  unpatchedNixpkgs = fetchNixpkgs {
-    rev    = "fdfd5ab05444c38a006cb107d7d1ee8cb0b15719";
-    sha256 = "17hsjpjahl0hff3z2khrcwxygjyyrav2pia3qqlli0sgywfrgf95";
+  nixpkgs = builtins.fetchTarball {
+    url = "https://github.com/NixOS/nixpkgs/archive/9a1672105db0eebe8ef59f310397435f2d0298d0.tar.gz";
+    sha256 = "06z4r0aaha5qyd0prg7h1f5sjrsndca75150zf5w4ff6g9vdv1rb";
   };
 
-  config = { allowUnfree = true; };
+  config = { allowBroken = true; };
 
-  upgrade = packageList: haskellPackagesNew: haskellPackagesOld:
-    let op = name: {
-          inherit name;
-          value = haskellPackagesNew.callPackage (./nix + "/${name}.nix") { };
-        };
-    in
-      builtins.listToAttrs (builtins.map op packageList);
+  overlay =
+    pkgsNew: pkgsOld: rec {
 
-  dontCheck = haskell: packageList: haskellPackagesNew: haskellPackagesOld:
-    let op = name: {
-          inherit name;
-          value = haskell.lib.dontCheck haskellPackagesOld.${name};
-        };
-    in
-      builtins.listToAttrs (builtins.map op packageList);
-
-  jailbreak = haskell: packageList: haskellPackagesNew: haskellPackagesOld:
-    let op = name: {
-          inherit name;
-          value = haskell.lib.doJailbreak haskellPackagesOld.${name};
-        };
-    in
-      builtins.listToAttrs (builtins.map op packageList);
-
-  patch = haskell: packageList: haskellPackagesNew: haskellPackagesOld:
-    let op = name: {
-          inherit name;
-          value = haskell.lib.appendPatch haskellPackagesOld.${name}
-                                          (./nix + "/${name}.patch");
-        };
-    in
-      builtins.listToAttrs (builtins.map op packageList);
-
-  composeExtensionList = lib: lib.foldr lib.composeExtensions (_: _: {});
-
-  overlays = [
-    (newPkgs: oldPkgs: rec {
-
-      haskell = oldPkgs.haskell // {
-        packages = oldPkgs.haskell.packages // {
-          "${compiler}" = oldPkgs.haskell.packages.${compiler}.override {
+      haskell = pkgsOld.haskell // {
+        packages = pkgsOld.haskell.packages // {
+          "${compiler}" = pkgsOld.haskell.packages.${compiler}.override {
             overrides =
               let
-                packageSourceOverrides = oldPkgs.haskell.lib.packageSourceOverrides {
+                packageSourceOverrides = pkgsNew.haskell.lib.packageSourceOverrides {
                   "proto3-wire" = ./.;
                 };
 
-                upgradeOverrides = upgrade
-                  [ "ChasingBottoms"
-                    "comonad"
-                    "distributive"
-                    "doctest"
-                    "parameterized"
-                    "semigroupoids"
-                  ];
-
-                patchOverrides = patch haskell
-                  [ "parameterized"
-                  ];
-
-                dontCheckOverrides = dontCheck haskell
-                  [ "doctest"
-                  ];
-
-                jailbreakOverrides = jailbreak haskell
-                  [ # Add package name strings here.
-                  ];
-
                 manualOverrides = haskellPackagesNew: haskellPackagesOld: {
+                  parameterized =
+                    pkgsNew.haskell.lib.dontCheck
+                      haskellPackagesOld.parameterized;
                 };
 
               in
-                composeExtensionList newPkgs.lib
+                pkgsNew.lib.foldr pkgsNew.lib.composeExtensions (_: _: { })
                   [ packageSourceOverrides
-                    upgradeOverrides
-                    patchOverrides
-                    dontCheckOverrides
-                    jailbreakOverrides
                     manualOverrides
                   ];
           };
         };
       };
-    })
-  ];
+    };
 
-  unpatchedPkgs = import unpatchedNixpkgs { inherit config overlays; };
-
-  # https://github.com/NixOS/nixpkgs/pull/85446
-  nixpkgs = unpatchedPkgs.stdenvNoCC.mkDerivation {
-    name = "nixpkgs-${nixpkgsRelease}-patched";
-
-    src = unpatchedNixpkgs;
-
-    # Backport fix <https://github.com/NixOS/nixpkgs/pull/85446> to 20.03:
-    patches = [ ./nix/with-packages-wrapper.patch ];
-
-    phases = [ "unpackPhase" "patchPhase" "installPhase" ];
-
-    installPhase = ''
-      mkdir -p $out
-      cp -R ./ $out/
-    '';
-
-    preferLocalBuild = true;
-  };
-
-  pkgs = import nixpkgs { inherit config overlays; };
+  pkgs = import nixpkgs { inherit config; overlays = [ overlay ]; };
 
 in
-
-  { proto3-wire = pkgs.haskell.packages."${compiler}".proto3-wire; }
+  { proto3-wire = pkgs.haskell.packages."${compiler}".proto3-wire;
+  }
