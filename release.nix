@@ -13,7 +13,7 @@ let
 
       haskell = pkgsOld.haskell // {
         packages = pkgsOld.haskell.packages // {
-          "${compiler}" = pkgsOld.haskell.packages.${compiler}.override {
+          "${compiler}" = pkgsOld.haskell.packages.${compiler}.override (old: {
             overrides =
               let
                 packageSourceOverrides = pkgsNew.haskell.lib.packageSourceOverrides {
@@ -27,11 +27,11 @@ let
                 };
 
               in
-                pkgsNew.lib.foldr pkgsNew.lib.composeExtensions (_: _: { })
+                pkgsNew.lib.foldr pkgsNew.lib.composeExtensions (old.overrides or (_: _: { }))
                   [ packageSourceOverrides
                     manualOverrides
                   ];
-          };
+          });
         };
       };
     };
