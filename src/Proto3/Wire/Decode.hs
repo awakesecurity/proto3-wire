@@ -72,6 +72,8 @@ module Proto3.Wire.Decode
     , repeated
     , embedded
     , embedded'
+      -- * ZigZag codec
+    , zigZagDecode
       -- * Exported For Doctest Only
     , toMap
     ) where

@@ -97,9 +97,12 @@ module Proto3.Wire.Encode
     , packedFloatsV
     , packedDoubles
     , packedDoublesV
+      -- * ZigZag codec
+    , zigZagEncode
     ) where
 
-import           Data.Bits                     ( (.|.), shiftL, shiftR, xor )
+import           Data.Bits                     ( (.|.), shiftL, shiftR, xor,
+                                                 FiniteBits, finiteBitSize )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Coerce                   ( coerce )
@@ -119,6 +122,12 @@ import           Proto3.Wire.Types
 -- $setup
 -- >>> :set -XOverloadedStrings -XOverloadedLists
 -- >>> :module Proto3.Wire.Encode Proto3.Wire.Class Data.Word
+
+-- | zigzag-encoded numeric type.
+zigZagEncode :: (Num a, FiniteBits a) => a -> a
+zigZagEncode i = (i `shiftL` 1) `xor` (i `shiftR` n)
+  where n = finiteBitSize i - 1
+{-# INLINE zigZagEncode #-}
 
 -- | A `MessageBuilder` represents a serialized protobuf message
 --
@@ -314,7 +323,7 @@ uint64 = \num i -> liftBoundedPrim $
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\SI"
 sint32 :: FieldNumber -> Int32 -> MessageBuilder
 sint32 = \num i ->
-  uint32 num (fromIntegral ((i `shiftL` 1) `xor` (i `shiftR` 31)))
+  uint32 num (fromIntegral (zigZagEncode i))
 {-# INLINE sint32 #-}
 
 -- | Encode a 64-bit signed integer
@@ -329,7 +338,7 @@ sint32 = \num i ->
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\255\255\255\255\255\SOH"
 sint64 :: FieldNumber -> Int64 -> MessageBuilder
 sint64 = \num i ->
-  uint64 num (fromIntegral ((i `shiftL` 1) `xor` (i `shiftR` 63)))
+  uint64 num (fromIntegral (zigZagEncode i))
 {-# INLINE sint64 #-}
 
 -- | Encode a fixed-width 32-bit integer
