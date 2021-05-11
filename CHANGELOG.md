@@ -1,3 +1,6 @@
+1.2.2
+  - Add new `zigZag{Encode,Decode}` utilities
+
 1.2.1
   - Build against GHC 9.0
   - Build against `tasty` 1.3 and 1.4
