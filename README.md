@@ -1,6 +1,6 @@
 # proto3-wire
 
-[![Build Status](https://travis-ci.org/awakesecurity/proto3-wire.svg?branch=master)](https://travis-ci.org/awakesecurity/proto3-wire)
+[![Build Status](https://github.com/awakesecurity/proto3-wire/actions/workflows/ci.yml/badge.svg)](https://github.com/awakesecurity/proto3-wire/actions/workflows/ci.yml)
 
 This library provides a low-level implementation of the [Protocol Buffers version 3 wire format](https://developers.google.com/protocol-buffers/docs/encoding).
 
