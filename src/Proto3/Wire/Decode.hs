@@ -88,7 +88,6 @@ import qualified Data.ByteString.Lazy    as BL
 import           Data.Foldable           ( foldl' )
 import qualified Data.IntMap.Strict      as M -- TODO intmap
 import           Data.Maybe              ( fromMaybe )
-import           Data.Monoid             ( (<>) )
 import           Data.Serialize.Get      ( Get, getWord8, getInt32le
                                          , getInt64le, getWord32le, getWord64le
                                          , runGet )
