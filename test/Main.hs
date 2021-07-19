@@ -21,7 +21,7 @@
 
 module Main where
 
-import           Control.Arrow         ( (&&&), first, second )
+import           Control.Arrow         ( (&&&), second )
 import           Control.Monad         ( guard, void )
 import           Control.Monad.Trans.State ( StateT(..) )
 import qualified Data.Bits             as Bits
@@ -30,7 +30,6 @@ import qualified Data.ByteString.Lazy  as BL
 import qualified Data.ByteString.Builder.Internal as BBI
 import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
-import           Data.Monoid           ( (<>) )
 import           Data.Int
 import           Data.List             ( group )
 import qualified Data.Text.Lazy        as T
@@ -41,14 +40,12 @@ import           Foreign               ( sizeOf )
 import           Proto3.Wire
 import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Reverse   as Reverse
-import qualified Proto3.Wire.Reverse.Prim as Prim
 import qualified Proto3.Wire.Encode    as Encode
 import qualified Proto3.Wire.Decode    as Decode
 
 import qualified Test.DocTest
 import           Test.QuickCheck       ( (===), Arbitrary )
 import           Test.Tasty
-import           Test.Tasty.HUnit      ( (@=?) )
 import qualified Test.Tasty.HUnit      as HU
 import qualified Test.Tasty.QuickCheck as QC
 
@@ -249,9 +246,9 @@ buildSingleChunk = HU.testCase "Legacy Builder creates a single chunk" $ do
 
 parseBytes :: Int64 -> StateT BL.ByteString Maybe BL.ByteString
 parseBytes n = StateT $ \bl -> do
-  let (before, after) = BL.splitAt n bl
-  guard (BL.length before == n)
-  pure (before, after)
+  let (prefix, suffix) = BL.splitAt n bl
+  guard (BL.length prefix == n)
+  pure (prefix, suffix)
 
 -- | Parses a big-endian 64-bit unsigned integer.
 parseWord64BE :: StateT BL.ByteString Maybe Word64

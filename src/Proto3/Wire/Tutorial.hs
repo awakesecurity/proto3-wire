@@ -167,7 +167,6 @@
 module Proto3.Wire.Tutorial where
 
 import           Data.ByteString         ( ByteString )
-import           Data.Monoid             ( (<>) )
 import           Data.Text.Lazy          ( Text )
 import           Data.Word               ( Word64 )
 
