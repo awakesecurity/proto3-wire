@@ -107,7 +107,7 @@ import qualified Data.ByteString               as B
 import qualified Data.ByteString.Lazy          as BL
 import           Data.Coerce                   ( coerce )
 import           Data.Int                      ( Int32, Int64 )
-import qualified Data.Text.Lazy                as Text.Lazy
+import qualified Data.Text                     as TS
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word32, Word64 )
 import           GHC.TypeLits                  ( KnownNat, Nat, type (+) )
@@ -479,8 +479,8 @@ string num = embedded num . MessageBuilder . RB.stringUtf8
 --
 -- >>> 1 `text` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
-text :: FieldNumber -> Text.Lazy.Text -> MessageBuilder
-text num = embedded num . MessageBuilder . RB.lazyTextUtf8
+text :: FieldNumber -> TS.Text -> MessageBuilder
+text num = embedded num . MessageBuilder . RB.textUtf8
 {-# INLINE text #-}
 
 -- | Encode a collection of bytes in the form of a strict 'B.ByteString'.

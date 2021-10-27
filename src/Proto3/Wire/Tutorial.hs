@@ -167,14 +167,14 @@
 module Proto3.Wire.Tutorial where
 
 import           Data.ByteString         ( ByteString )
-import           Data.Text.Lazy          ( Text )
+import qualified Data.Text               as TS
 import           Data.Word               ( Word64 )
 
 import           Proto3.Wire
 import qualified Proto3.Wire.Encode      as Encode
 import qualified Proto3.Wire.Decode      as Decode
 
-data EchoRequest = EchoRequest { echoRequestMessage :: Text }
+data EchoRequest = EchoRequest { echoRequestMessage :: TS.Text }
 
 encodeEchoRequest :: EchoRequest -> Encode.MessageBuilder
 encodeEchoRequest EchoRequest{..} =
@@ -186,7 +186,7 @@ decodeEchoRequest = Decode.parse echoRequestParser
 echoRequestParser :: Decode.Parser Decode.RawMessage EchoRequest
 echoRequestParser = EchoRequest <$> (one Decode.text mempty `at` 1)
 
-data EchoResponse = EchoResponse { echoResponseMessage   :: Text
+data EchoResponse = EchoResponse { echoResponseMessage   :: TS.Text
                                  , echoResponseTimestamp :: Word64
                                  }
 

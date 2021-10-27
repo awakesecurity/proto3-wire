@@ -32,7 +32,7 @@ import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
 import           Data.Int
 import           Data.List             ( group )
-import qualified Data.Text.Lazy        as T
+import qualified Data.Text             as TS
 import qualified Data.Vector           as V
 import           Data.Word             ( Word8, Word64 )
 import           Foreign               ( sizeOf )
@@ -72,11 +72,11 @@ tests = testGroup "Tests" [ roundTripTests
                           , packedLargeTests
                           ]
 
-data StringOrInt64 = TString T.Text | TInt64 Int64
+data StringOrInt64 = TString TS.Text | TInt64 Int64
     deriving (Show,Eq)
 
 instance QC.Arbitrary StringOrInt64 where
-    arbitrary = QC.oneof [ TString . T.pack <$> QC.arbitrary, TInt64 <$> QC.arbitrary ]
+    arbitrary = QC.oneof [ TString . TS.pack <$> QC.arbitrary, TInt64 <$> QC.arbitrary ]
 
 -- This just stress tests the fancy varint encodings with more randomness.
 varIntHeavyTests :: TestTree
@@ -127,8 +127,8 @@ roundTripTests = testGroup "Roundtrip tests"
                                        (Encode.bool (fieldNumber 1))
                                        (one Decode.bool False `at` fieldNumber 1)
                            , roundTrip "text"
-                                       (Encode.text (fieldNumber 1) . T.pack)
-                                       (one (fmap T.unpack Decode.text) mempty `at`
+                                       (Encode.text (fieldNumber 1) . TS.pack)
+                                       (one (fmap TS.unpack Decode.text) mempty `at`
                                             fieldNumber 1)
                            , roundTrip "embedded"
                                        (Encode.embedded (fieldNumber 1) .
