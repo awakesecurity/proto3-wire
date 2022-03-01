@@ -112,7 +112,7 @@ import           Data.Word                     ( Word16,
                                                  byteSwap64 )
 import           Foreign                       ( Storable(..) )
 import           GHC.Exts                      ( Addr#, Int#, Proxy#,
-                                                 RealWorld, State#, (+#),
+                                                 RealWorld, State#, Word#, (+#),
                                                  and#, inline, or#,
                                                  plusAddr#, plusWord#, proxy#,
                                                  uncheckedShiftRL# )
@@ -214,7 +214,7 @@ instance CommPlusNat BoundedPrim u v
 instance PMEmpty BoundedPrim 0
   where
     pmempty = BoundedPrim mempty
-    {-# INLINE CONLIKE pmempty #-}
+    {-# NOINLINE pmempty #-}
 
 instance Max u v ~ w =>
          PChoose BoundedPrim u v w

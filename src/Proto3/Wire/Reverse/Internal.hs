@@ -134,7 +134,7 @@ instance Semigroup BuildR
 instance Monoid BuildR
   where
     mempty = BuildR (\v u s -> (# v, u, s #))
-    {-# INLINE mempty #-}
+    {-# NOINLINE mempty #-}
 
     mappend = (<>)
     {-# INLINE mappend #-}
