@@ -135,7 +135,7 @@ import           Proto3.Wire.Reverse.Width     ( AssocPlusNat(..),
 
 #include <MachDeps.h>  /* for WORDS_BIGENDIAN and WORD_SIZE_IN_BITS */
 
-#ifdef GHCJS
+#ifdef ghcjs_HOST_OS
 import GHC.Exts (Word#)
 #endif
 
@@ -218,7 +218,7 @@ instance CommPlusNat BoundedPrim u v
 instance PMEmpty BoundedPrim 0
   where
     pmempty = BoundedPrim mempty
-#ifdef GHCJS
+#ifdef ghcjs_HOST_OS
     {-# NOINLINE pmempty #-}
 #else
     {-# INLINE CONLIKE pmempty #-}

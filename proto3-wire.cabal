@@ -11,14 +11,7 @@ build-type:          Simple
 cabal-version:       >=1.10
 extra-source-files:  CHANGELOG.md
 
-flag ghcjs
-  Description: Turn on support for GHCJS by turning off a few compiler optimizations
-  Default: False
-  Manual: True
-
 library
-  if flag(ghcjs)
-    cpp-options: -DGHCJS
   exposed-modules:     Proto3.Wire
                        Proto3.Wire.Builder
                        Proto3.Wire.Class
