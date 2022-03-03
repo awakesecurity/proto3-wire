@@ -112,7 +112,7 @@ import           Data.Word                     ( Word16,
                                                  byteSwap64 )
 import           Foreign                       ( Storable(..) )
 import           GHC.Exts                      ( Addr#, Int#, Proxy#,
-                                                 RealWorld, State#, Word#, (+#),
+                                                 RealWorld, State#, (+#),
                                                  and#, inline, or#,
                                                  plusAddr#, plusWord#, proxy#,
                                                  uncheckedShiftRL# )
@@ -134,6 +134,10 @@ import           Proto3.Wire.Reverse.Width     ( AssocPlusNat(..),
                                                  CommMaxNat(..) )
 
 #include <MachDeps.h>  /* for WORDS_BIGENDIAN and WORD_SIZE_IN_BITS */
+
+#ifdef GHCJS
+import GHC.Exts (Word#)
+#endif
 
 -- "ghc-prim" v0.6.1 defines `GHC.Prim.Ext.WORD64`, but we do not wish
 -- to require that version of "ghc-prim".  Therefore we define it locally.
@@ -214,7 +218,11 @@ instance CommPlusNat BoundedPrim u v
 instance PMEmpty BoundedPrim 0
   where
     pmempty = BoundedPrim mempty
+#ifdef GHCJS
     {-# NOINLINE pmempty #-}
+#else
+    {-# INLINE CONLIKE pmempty #-}
+#endif
 
 instance Max u v ~ w =>
          PChoose BoundedPrim u v w

@@ -134,7 +134,11 @@ instance Semigroup BuildR
 instance Monoid BuildR
   where
     mempty = BuildR (\v u s -> (# v, u, s #))
+#ifdef GHCJS
     {-# NOINLINE mempty #-}
+#else
+    {-# INLINE mempty #-}
+#endif
 
     mappend = (<>)
     {-# INLINE mappend #-}
