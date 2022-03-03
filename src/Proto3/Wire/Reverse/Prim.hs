@@ -135,6 +135,10 @@ import           Proto3.Wire.Reverse.Width     ( AssocPlusNat(..),
 
 #include <MachDeps.h>  /* for WORDS_BIGENDIAN and WORD_SIZE_IN_BITS */
 
+#ifdef ghcjs_HOST_OS
+import GHC.Exts (Word#)
+#endif
+
 -- "ghc-prim" v0.6.1 defines `GHC.Prim.Ext.WORD64`, but we do not wish
 -- to require that version of "ghc-prim".  Therefore we define it locally.
 #if WORD_SIZE_IN_BITS < 64
@@ -214,7 +218,11 @@ instance CommPlusNat BoundedPrim u v
 instance PMEmpty BoundedPrim 0
   where
     pmempty = BoundedPrim mempty
+#ifdef ghcjs_HOST_OS
+    {-# NOINLINE pmempty #-}
+#else
     {-# INLINE CONLIKE pmempty #-}
+#endif
 
 instance Max u v ~ w =>
          PChoose BoundedPrim u v w
