@@ -126,6 +126,10 @@ roundTripTests = testGroup "Roundtrip tests"
                            , roundTrip "bool"
                                        (Encode.bool (fieldNumber 1))
                                        (one Decode.bool False `at` fieldNumber 1)
+                           , roundTrip
+                               "string"
+                               (Encode.string 1)
+                               (one Decode.string "a utf8 stringよ?よ" `at` 1)
                            , roundTrip "text"
                                        (Encode.text (fieldNumber 1) . T.pack)
                                        (one (fmap T.unpack Decode.text) mempty `at`

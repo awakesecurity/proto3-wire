@@ -51,6 +51,7 @@ module Proto3.Wire.Decode
     , sint32
     , sint64
     , enum
+    , string
     , byteString
     , lazyByteString
     , text
@@ -84,6 +85,7 @@ import           Control.Exception       ( Exception )
 import           Control.Monad           ( msum, foldM )
 import           Data.Bits
 import qualified Data.ByteString         as B
+import qualified Data.ByteString.UTF8 as ByteString.UTF8
 import qualified Data.ByteString.Lazy    as BL
 import           Data.Foldable           ( foldl' )
 import qualified Data.IntMap.Strict      as M -- TODO intmap
@@ -100,6 +102,8 @@ import           Data.Word               ( Word8, Word32, Word64 )
 import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 
+-- ------------------------------------------------------------------------------
+
 -- $setup
 -- >>> :set -XOverloadedStrings
 -- >>> :module Proto3.Wire.Decode Proto3.Wire.Types
@@ -114,16 +118,17 @@ zigZagDecode i = shiftR i 1 `xor` (-(i .&. 1))
 -- We don't know what's inside some of these fields until we know what type
 -- we're deserializing to, so we leave them as 'ByteString' until a later step
 -- in the process.
-data ParsedField = VarintField Word64
-                 | Fixed32Field B.ByteString
-                 | Fixed64Field B.ByteString
-                 | LengthDelimitedField B.ByteString
-    deriving (Show, Eq)
+data ParsedField
+  = VarintField Word64
+  | Fixed32Field B.ByteString
+  | Fixed64Field B.ByteString
+  | LengthDelimitedField B.ByteString
+  deriving (Eq, Show)
 
 -- | Convert key-value pairs to a map of keys to a sequence of values with that
 -- key, in their reverse occurrence order.
 --
--- >>> toMap ([(FieldNumber 1, 3),(FieldNumber 2, 4),(FieldNumber 1, 6)] :: [(FieldNumber,Int)])
+-- >>> toMap ([(1,3),(2,4),(1,6)] :: [(FieldNumber,Int)])
 -- fromList [(1,[6,3]),(2,[4])]
 --
 toMap :: [(FieldNumber, v)] -> M.IntMap [v]
@@ -144,7 +149,6 @@ decodeWire bstr = drloop bstr []
 
 eitherUncons :: B.ByteString -> Either String (Word8, B.ByteString)
 eitherUncons = maybe (Left "failed to parse varint128") Right . B.uncons
-
 
 takeVarInt :: B.ByteString -> Either String (Word64, B.ByteString)
 takeVarInt !bs =
@@ -200,8 +204,9 @@ gwireType 2 = return LengthDelimited
 gwireType wt = Left $ "wireType got unknown wire type: " ++ show wt
 
 safeSplit :: Int -> B.ByteString -> Either String (B.ByteString, B.ByteString)
-safeSplit !i !b | B.length b < i = Left "failed to parse varint128: not enough bytes"
-                | otherwise = Right $ B.splitAt i b
+safeSplit !i !b
+  | B.length b < i = Left "failed to parse varint128: not enough bytes"
+  | otherwise = Right $ B.splitAt i b
 
 takeWT :: WireType -> B.ByteString -> Either String (ParsedField, B.ByteString)
 takeWT Varint !b  = fmap (first VarintField) $ takeVarInt b
@@ -215,21 +220,18 @@ takeWT LengthDelimited b = do
 -- * Parser Interface
 
 -- | Type describing possible errors that can be encountered while parsing.
-data ParseError =
-                -- | A 'WireTypeError' occurs when the type of the data in the protobuf
-                -- binary format does not match the type encountered by the parser. This can
-                -- indicate that the type of a field has changed or is incorrect.
-                WireTypeError Text
-                |
-                -- | A 'BinaryError' occurs when we can't successfully parse the contents of
-                -- the field.
-                BinaryError Text
-                |
-                -- | An 'EmbeddedError' occurs when we encounter an error while parsing an
-                -- embedded message.
-                EmbeddedError Text
-                              (Maybe ParseError)
-    deriving (Show, Eq, Ord)
+data ParseError
+  = -- | A 'WireTypeError' occurs when the type of the data in the protobuf
+    -- binary format does not match the type encountered by the parser. This can
+    -- indicate that the type of a field has changed or is incorrect.
+    WireTypeError Text
+  | -- | A 'BinaryError' occurs when we can't successfully parse the contents of
+    -- the field.
+    BinaryError Text
+  | -- | An 'EmbeddedError' occurs when we encounter an error while parsing an
+    -- embedded message.
+    EmbeddedError Text (Maybe ParseError)
+  deriving (Eq, Ord, Show)
 
 -- | This library does not use this instance, but it is provided for convenience,
 -- so that 'ParseError' may be used with functions like `throwIO`
@@ -248,17 +250,19 @@ instance Exception ParseError
 --
 -- 'Parser's can be combined using the 'Applicative', 'Monad' and 'Alternative'
 -- instances.
-newtype Parser input a = Parser { runParser :: input -> Either ParseError a }
-    deriving Functor
+newtype Parser input a = Parser
+  { runParser :: input -> Either ParseError a }
+  deriving Functor
 
 instance Applicative (Parser input) where
-    pure = Parser . const . pure
-    Parser p1 <*> Parser p2 =
-        Parser $ \input -> p1 input <*> p2 input
+  pure = Parser . const . pure
+
+  Parser p1 <*> Parser p2 = Parser $ \input ->
+    p1 input <*> p2 input
 
 instance Monad (Parser input) where
-    -- return = pure
-    Parser p >>= f = Parser $ \input -> p input >>= (`runParser` input) . f
+  Parser p >>= f = Parser $ \input ->
+    p input >>= (`runParser` input) . f
 
 -- | Raw data corresponding to a single encoded key/value pair.
 type RawPrimitive = ParsedField
@@ -296,70 +300,58 @@ parse parser bs = case decodeWire bs of
 -- | To comply with the protobuf spec, if there are multiple fields with the same
 -- field number, this will always return the last one.
 parsedField :: RawField -> Maybe RawPrimitive
-parsedField xs = case xs of
-    [] -> Nothing
-    (x:_) -> Just x
+parsedField [] = Nothing
+parsedField (x : _) = Just x
 
-throwWireTypeError :: Show input
-                   => String
-                   -> input
-                   -> Either ParseError expected
+throwWireTypeError :: Show input => String -> input -> Either ParseError expected
 throwWireTypeError expected wrong =
-    Left (WireTypeError (pack msg))
-  where
-    msg = "Wrong wiretype. Expected " ++ expected ++ " but got " ++ show wrong
+  let msg = "Wrong wiretype. Expected " ++ expected ++ " but got " ++ show wrong
+   in Left (WireTypeError (pack msg))
 
 throwCerealError :: String -> String -> Either ParseError a
 throwCerealError expected cerealErr =
-    Left (BinaryError (pack msg))
-  where
-    msg = "Failed to parse contents of " ++
-        expected ++ " field. " ++ "Error from cereal was: " ++ cerealErr
+  let msg = "Failed to parse contents of " ++ expected ++ " field. " ++ "Error from cereal was: " ++ cerealErr
+   in Left (BinaryError (pack msg))
 
 parseVarInt :: Integral a => Parser RawPrimitive a
-parseVarInt = Parser $
-    \case
-        VarintField i -> Right (fromIntegral i)
-        wrong -> throwWireTypeError "varint" wrong
+parseVarInt = Parser $ \case
+  VarintField i -> Right (fromIntegral i)
+  wrong -> throwWireTypeError "varint" wrong
 
 runGetPacked :: Get a -> Parser RawPrimitive a
-runGetPacked g = Parser $
-    \case
-        LengthDelimitedField bs ->
-            case runGet g bs of
-                Left e -> throwCerealError "packed repeated field" e
-                Right xs -> return xs
-        wrong -> throwWireTypeError "packed repeated field" wrong
+runGetPacked g = Parser $ \case
+  LengthDelimitedField bs ->
+    case runGet g bs of
+      Left e -> throwCerealError "packed repeated field" e
+      Right xs -> return xs
+  wrong -> throwWireTypeError "packed repeated field" wrong
 
 runGetFixed32 :: Get a -> Parser RawPrimitive a
-runGetFixed32 g = Parser $
-    \case
-        Fixed32Field bs -> case runGet g bs of
-            Left e -> throwCerealError "fixed32 field" e
-            Right x -> return x
-        wrong -> throwWireTypeError "fixed 32 field" wrong
+runGetFixed32 g = Parser $ \case
+  Fixed32Field bs ->
+    case runGet g bs of
+      Left e -> throwCerealError "fixed32 field" e
+      Right x -> return x
+  wrong -> throwWireTypeError "fixed 32 field" wrong
 
 runGetFixed64 :: Get a -> Parser RawPrimitive a
-runGetFixed64 g = Parser $
-    \case
-        Fixed64Field bs -> case runGet g bs of
-            Left e -> throwCerealError "fixed 64 field" e
-            Right x -> return x
-        wrong -> throwWireTypeError "fixed 64 field" wrong
+runGetFixed64 g = Parser $ \case
+  Fixed64Field bs ->
+    case runGet g bs of
+      Left e -> throwCerealError "fixed 64 field" e
+      Right x -> return x
+  wrong -> throwWireTypeError "fixed 64 field" wrong
 
 bytes :: Parser RawPrimitive B.ByteString
-bytes = Parser $
-    \case
-        LengthDelimitedField bs ->
-            return $! B.copy bs
-        wrong -> throwWireTypeError "bytes" wrong
+bytes = Parser $ \case
+  LengthDelimitedField bs -> return $! B.copy bs
+  wrong -> throwWireTypeError "bytes" wrong
 
 -- | Parse a Boolean value.
 bool :: Parser RawPrimitive Bool
-bool = Parser $
-    \case
-        VarintField i -> return $! i /= 0
-        wrong -> throwWireTypeError "bool" wrong
+bool = Parser $ \case
+  VarintField i -> return $! i /= 0
+  wrong -> throwWireTypeError "bool" wrong
 
 -- | Parse a primitive with the @int32@ wire type.
 int32 :: Parser RawPrimitive Int32
@@ -393,16 +385,20 @@ byteString = bytes
 lazyByteString :: Parser RawPrimitive BL.ByteString
 lazyByteString = fmap BL.fromStrict bytes
 
--- | Parse a primitive with the @bytes@ wire type as 'Text'.
+-- | Decode a length-delimited wire field into a 'String'.
+string :: Parser RawPrimitive String
+string = Parser $ \case
+  LengthDelimitedField bs -> pure (ByteString.UTF8.toString bs)
+  other -> throwWireTypeError "String" other
+
+-- | Parse a primitive with the "bytes" wire type as 'Text'.
 text :: Parser RawPrimitive Text
-text = Parser $
-    \case
-        LengthDelimitedField bs ->
-            case decodeUtf8' $ BL.fromStrict bs of
-                Left err -> Left (BinaryError (pack ("Failed to decode UTF-8: " ++
-                                                         show err)))
-                Right txt -> return txt
-        wrong -> throwWireTypeError "string" wrong
+text = Parser $ \case
+  LengthDelimitedField bs ->
+    case decodeUtf8' $ BL.fromStrict bs of
+      Left err -> Left (BinaryError (pack ("Failed to decode UTF-8: " ++ show err)))
+      Right txt -> return txt
+  wrong -> throwWireTypeError "Text" wrong
 
 -- | Parse a primitive with an enumerated type.
 --
