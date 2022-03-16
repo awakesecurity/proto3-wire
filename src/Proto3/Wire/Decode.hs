@@ -53,7 +53,9 @@ module Proto3.Wire.Decode
     , enum
     , byteString
     , lazyByteString
+    , shortByteString
     , text
+    , shortText
     , packedVarints
     , packedFixed32
     , packedFixed64
@@ -85,6 +87,7 @@ import           Control.Monad           ( msum, foldM )
 import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
+import qualified Data.ByteString.Short   as BS
 import           Data.Foldable           ( foldl' )
 import qualified Data.IntMap.Strict      as M -- TODO intmap
 import           Data.Maybe              ( fromMaybe )
@@ -94,6 +97,7 @@ import           Data.Serialize.Get      ( Get, getWord8, getInt32le
 import           Data.Serialize.IEEE754  ( getFloat32le, getFloat64le )
 import           Data.Text.Lazy          ( Text, pack )
 import           Data.Text.Lazy.Encoding ( decodeUtf8' )
+import qualified Data.Text.Short         as Text.Short
 import qualified Data.Traversable        as T
 import           Data.Int                ( Int32, Int64 )
 import           Data.Word               ( Word8, Word32, Word64 )
@@ -350,8 +354,7 @@ runGetFixed64 g = Parser $
 bytes :: Parser RawPrimitive B.ByteString
 bytes = Parser $
     \case
-        LengthDelimitedField bs ->
-            return $! B.copy bs
+        LengthDelimitedField bs -> return $! B.copy bs
         wrong -> throwWireTypeError "bytes" wrong
 
 -- | Parse a Boolean value.
@@ -393,6 +396,13 @@ byteString = bytes
 lazyByteString :: Parser RawPrimitive BL.ByteString
 lazyByteString = fmap BL.fromStrict bytes
 
+-- | Parse a primitive with the @bytes@ wire type as a 'BS.ShortByteString'.
+shortByteString :: Parser RawPrimitive BS.ShortByteString
+shortByteString = Parser $
+    \case
+        LengthDelimitedField bs -> return $! BS.toShort bs
+        wrong -> throwWireTypeError "bytes" wrong
+
 -- | Parse a primitive with the @bytes@ wire type as 'Text'.
 text :: Parser RawPrimitive Text
 text = Parser $
@@ -402,6 +412,16 @@ text = Parser $
                 Left err -> Left (BinaryError (pack ("Failed to decode UTF-8: " ++
                                                          show err)))
                 Right txt -> return txt
+        wrong -> throwWireTypeError "string" wrong
+
+-- | Parse a primitive with the @bytes@ wire type as `Text.Short.ShortText`.
+shortText :: Parser RawPrimitive Text.Short.ShortText
+shortText = Parser $
+    \case
+        LengthDelimitedField bs ->
+            case Text.Short.fromByteString bs of
+                Nothing -> Left (BinaryError (pack ("Failed to decode UTF-8")))
+                Just txt -> return txt
         wrong -> throwWireTypeError "string" wrong
 
 -- | Parse a primitive with an enumerated type.

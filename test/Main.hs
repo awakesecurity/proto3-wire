@@ -27,12 +27,14 @@ import           Control.Monad.Trans.State ( StateT(..) )
 import qualified Data.Bits             as Bits
 import qualified Data.ByteString       as B
 import qualified Data.ByteString.Lazy  as BL
+import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Builder.Internal as BBI
 import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
 import           Data.Int
 import           Data.List             ( group )
 import qualified Data.Text.Lazy        as T
+import qualified Data.Text.Short       as TS
 import qualified Data.Vector           as V
 import           Data.Word             ( Word8, Word64 )
 import           Foreign               ( sizeOf )
@@ -54,6 +56,7 @@ main = do
     Test.DocTest.doctest
       [ "-isrc"
       , "-fobject-code"
+      , "-Wno-warnings-deprecations"
       , "src/Proto3/Wire/Builder.hs"
       , "src/Proto3/Wire/Reverse.hs"
       , "src/Proto3/Wire/Encode.hs"
@@ -129,6 +132,18 @@ roundTripTests = testGroup "Roundtrip tests"
                            , roundTrip "text"
                                        (Encode.text (fieldNumber 1) . T.pack)
                                        (one (fmap T.unpack Decode.text) mempty `at`
+                                            fieldNumber 1)
+                           , roundTrip "shortText"
+                                       (Encode.shortText (fieldNumber 1) . TS.pack)
+                                       (one (fmap TS.unpack Decode.shortText) mempty `at`
+                                            fieldNumber 1)
+                           , roundTrip "byteString"
+                                       (Encode.byteString (fieldNumber 1) . B.pack)
+                                       (one (fmap B.unpack Decode.byteString) mempty `at`
+                                            fieldNumber 1)
+                           , roundTrip "shortByteString"
+                                       (Encode.shortByteString (fieldNumber 1) . BS.pack)
+                                       (one (fmap BS.unpack Decode.shortByteString) mempty `at`
                                             fieldNumber 1)
                            , roundTrip "embedded"
                                        (Encode.embedded (fieldNumber 1) .
