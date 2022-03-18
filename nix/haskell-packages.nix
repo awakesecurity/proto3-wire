@@ -9,7 +9,7 @@ pkgsNew: pkgsOld:
         (old.overrides or (_: _: {}))
         (haskellPackagesFinal: haskellPackagesPrev: {
           proto3-wire = haskellPackagesFinal.callCabal2nix "proto3-wire" ../. { };
-          word-compat = haskellPackagesFinal.callPackage (import ./word-compat.nix);
+          word-compat = haskellPackagesFinal.callPackage ./word-compat.nix { };
         });
   });
 }
