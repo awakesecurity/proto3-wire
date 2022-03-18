@@ -4,8 +4,8 @@ mkDerivation {
   version = "0.0.1";
   src = fetchgit {
     url = "https://github.com/fumieval/word-compat";
-    sha256 = "15ffpvza5jppcnracqa8shylr8ds6lvb4janry9yyyyw2a3h2cyb";
-    rev = "3eb157b229af035c4a35a0524d56acdec50ba6c4";
+    sha256 = "13370fp55ms3bmyip83vav33jasggz04sksy61ypd0fm5yirpj7x";
+    rev = "c02432cea08bc8037fe8f1bbfc7a026bbddff75e";
     fetchSubmodules = true;
   };
   libraryHaskellDepends = [ base ghc-prim ];
