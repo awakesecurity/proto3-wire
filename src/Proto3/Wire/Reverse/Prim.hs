@@ -121,8 +121,7 @@ import           GHC.Int                       ( Int(..) )
 import           GHC.Ptr                       ( Ptr(..) )
 import           GHC.TypeLits                  ( KnownNat, Nat,
                                                  type (+), natVal' )
-import           GHC.Word                      ( Word(..), Word8(..),
-                                                 Word32(..), Word64(..) )
+import           GHC.Word.Compat
 import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
                                                  (&<>) )
 import           Parameterized.Data.Monoid     ( PMEmpty(..) )
