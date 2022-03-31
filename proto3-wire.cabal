@@ -29,7 +29,7 @@ library
                        containers >=0.5 && < 0.7,
                        deepseq ==1.4.*,
                        ghc-prim >=0.5.3 && <0.8,
-                       hashable <1.4,
+                       hashable <1.5,
                        parameterized >=0.5.0.0 && <1,
                        primitive >=0.6.4 && <0.8,
                        safe ==0.3.*,
