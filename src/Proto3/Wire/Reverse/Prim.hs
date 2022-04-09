@@ -107,9 +107,6 @@ import           Data.Char                     ( ord )
 import           Data.Int                      ( Int8, Int16, Int32, Int64 )
 import           Data.Kind                     ( Type )
 import qualified Data.Vector.Generic
-import           Data.Word                     ( Word16,
-                                                 byteSwap16, byteSwap32,
-                                                 byteSwap64 )
 import           Foreign                       ( Storable(..) )
 import           GHC.Exts                      ( Addr#, Int#, Proxy#,
                                                  RealWorld, State#, (+#),
@@ -121,8 +118,7 @@ import           GHC.Int                       ( Int(..) )
 import           GHC.Ptr                       ( Ptr(..) )
 import           GHC.TypeLits                  ( KnownNat, Nat,
                                                  type (+), natVal' )
-import           GHC.Word.Compat               ( Word(..), Word8(..),
-                                                 Word32(..), Word64(..) )
+import           GHC.Word.Compat
 import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
                                                  (&<>) )
 import           Parameterized.Data.Monoid     ( PMEmpty(..) )
