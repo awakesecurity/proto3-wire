@@ -1,5 +1,8 @@
 {-# LANGUAGE ApplicativeDo #-}
+{-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+
 
 module Main where
 
@@ -18,13 +21,27 @@ import Criterion (bench)
 import qualified Criterion as C
 import Criterion.Main (defaultMain)
 
-intTreeParser :: De.Parser De.RawMessage Word64
+data Tree a = Leaf | Branch a (Tree a) (Tree a)
+  deriving (Eq, Functor)
+
+instance Foldable Tree where
+  foldr _ z Leaf = z
+  foldr f z (Branch a t1 t2) = foldr f (foldr f z t2) t1
+
+  sum Leaf = 0
+  sum (Branch a t1 t2) =
+    let !a1 = sum t1
+        !a2 = sum t2
+    in a + a1 + a2
+
+intTreeParser :: De.Parser De.RawMessage (Tree Word64)
 intTreeParser = liftA3 combine
     (De.at (De.repeated De.fixed64) (FieldNumber 0))
     (De.at (De.embedded intTreeParser) (FieldNumber 1))
     (De.at (De.embedded intTreeParser) (FieldNumber 2))
   where
-    combine xs y z = sum xs + fromMaybe 0 y + fromMaybe 0 z
+    combine xs (Just y) (Just z) = Branch (sum xs) y z
+    combine _ _ _ = Leaf
 
 detRandom :: [Word64]
 detRandom =
@@ -74,7 +91,7 @@ mkTree :: IO B.ByteString
 mkTree = BL.toStrict . En.toLazyByteString <$> (mkTree0 =<< newIORef detRandom)
 
 decode :: B.ByteString -> IO (Maybe Word64)
-decode = pure . toMaybe . De.parse intTreeParser
+decode = pure . fmap sum . toMaybe . De.parse intTreeParser
   where
     toMaybe (Left _) = Nothing
     toMaybe (Right x) = Just x
