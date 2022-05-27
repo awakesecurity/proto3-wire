@@ -37,15 +37,54 @@ instance Foldable Tree where
 intTreeParser :: De.Parser De.RawMessage (Tree Word64)
 intTreeParser = liftA3 combine
     (De.at (De.repeated De.fixed64) (FieldNumber 0))
-    (De.at (De.embedded intTreeParser) (FieldNumber 1))
-    (De.at (De.embedded intTreeParser) (FieldNumber 2))
+    (De.at (De.one (De.embedded' intTreeParser) Leaf) (FieldNumber 1))
+    (De.at (De.one (De.embedded' intTreeParser) Leaf) (FieldNumber 2))
   where
-    combine xs (Just y) (Just z) = Branch (sum xs) y z
-    combine _ _ _ = Leaf
+    combine xs y z = Branch (sum xs) y z
 
 detRandom :: [Word64]
-detRandom =
-  [ 159, 207, 87, 180, 236,
+detRandom = concat . replicate 10 $
+  [ 227, 133, 16, 164, 43,
+    159, 207, 87, 180, 236,
+    245, 128, 249, 170, 216,
+    181, 164, 162, 239, 249,
+    76, 237, 197, 246, 209,
+    231, 124, 154, 55, 64,
+    4, 114, 79, 199, 252,
+    163, 116, 237, 209, 138,
+    240, 148, 212, 224, 88,
+    131, 122, 114, 158, 97,
+    186, 3, 223, 230, 223,
+    207, 93, 168, 48, 130,
+    77, 122, 30, 222, 221,
+    224, 243, 19, 175, 61,
+    112, 246, 201, 57, 185,
+    19, 128, 129, 138, 209,
+    4, 153, 196, 238, 72,
+    254, 157, 233, 81, 30,
+    106, 249, 57, 214, 104,
+    171, 146, 175, 185, 192,
+    159, 207, 87, 180, 236,
+    227, 133, 16, 164, 43,
+    245, 128, 249, 170, 216,
+    181, 164, 162, 239, 249,
+    76, 237, 197, 246, 209,
+    231, 124, 154, 55, 64,
+    4, 114, 79, 199, 252,
+    163, 116, 237, 209, 138,
+    240, 148, 212, 224, 88,
+    131, 122, 114, 158, 97,
+    186, 3, 223, 230, 223,
+    207, 93, 168, 48, 130,
+    77, 122, 30, 222, 221,
+    224, 243, 19, 175, 61,
+    112, 246, 201, 57, 185,
+    19, 128, 129, 138, 209,
+    4, 153, 196, 238, 72,
+    254, 157, 233, 81, 30,
+    106, 249, 57, 214, 104,
+    171, 146, 175, 185, 192,
+    159, 207, 87, 180, 236,
     227, 133, 16, 164, 43,
     245, 128, 249, 170, 216,
     181, 164, 162, 239, 249,
@@ -78,7 +117,7 @@ pullInt xs = do
 
 mkTree0 :: IORef [Word64] -> IO En.MessageBuilder
 mkTree0 ints = do
-  shouldFork <- (\(i :: Word64) -> (i `mod` 8) < 5) <$> pullInt ints
+  shouldFork <- (\(i :: Word64) -> (i `mod` 8) < 6) <$> pullInt ints
   if shouldFork
     then do
       i <- En.fixed64 (FieldNumber 0) <$> pullInt ints
