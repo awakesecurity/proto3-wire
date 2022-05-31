@@ -1,3 +1,7 @@
+1.3.0
+  - Support GHC 9.2
+  - Prevent inlining for GHCJS
+
 1.2.2
   - Add new `zigZag{Encode,Decode}` utilities
 
