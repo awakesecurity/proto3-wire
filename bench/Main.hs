@@ -26,7 +26,7 @@ data Tree a = Leaf | Branch a (Tree a) (Tree a)
 
 instance Foldable Tree where
   foldr _ z Leaf = z
-  foldr f z (Branch a t1 t2) = foldr f (foldr f z t2) t1
+  foldr f z (Branch a t1 t2) = foldr f (f a (foldr f z t2)) t1
 
   sum Leaf = 0
   sum (Branch a t1 t2) =
