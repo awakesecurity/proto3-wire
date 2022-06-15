@@ -127,7 +127,26 @@ data ParsedField = VarintField Word64
 -- fromList [(1,[6,3]),(2,[4])]
 --
 toMap :: [(FieldNumber, v)] -> M.IntMap [v]
-toMap kvs0 = M.fromListWith (<>) . map (fmap (:[])) . map (first (fromIntegral . getFieldNumber)) $ kvs0
+toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
+  where
+    makeMap :: [(Int, v)] -> M.IntMap [v]
+    makeMap = close . foldl' combineSeen (M.empty, Nothing)
+
+    close (m, Nothing) = m
+    close (m, Just (k, v)) = M.insert k v m
+
+    -- If keys are in order, then we don't have to make any lookups,
+    -- we just maintain the active element.
+    -- Out of order keys will lookup in the map
+    combineSeen :: (M.IntMap [v], Maybe (Int, [v])) -> (Int, v) -> (M.IntMap [v], Maybe (Int, [v]))
+    combineSeen (_, Nothing) (k1, a1) = (M.empty, Just (k1, [a1]))
+    combineSeen (m, Just (k2, as)) (k1, a1) =
+      case compare k1 k2 of
+        EQ -> (m, Just (k1, a1 : as))
+        LT -> let !m' = M.insertWith (<>) k1 [a1] m
+              in (m', Just (k2, as))
+        GT -> let !m' = M.insert k2 as m
+              in (m', Just (k1, [a1]))
 
 -- | Parses data in the raw wire format into an untyped 'Map' representation.
 decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
