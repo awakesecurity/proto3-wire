@@ -141,14 +141,10 @@ toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
     combineSeen :: Maybe (M.IntMap [v], Int, [v]) -> (Int, v) -> Maybe (M.IntMap [v], Int, [v])
     combineSeen Nothing (k1, a1) = Just (M.empty, k1, [a1])
     combineSeen (Just (m, k2, as)) (k1, a1) =
-      case compare k1 k2 of
-        -- NOTE: this is a foldl, so this list will
-        -- be in reverse order (intentionally)
-        EQ -> Just (m, k1, a1 : as)
-        LT -> let !m' = M.insertWith (<>) k1 [a1] m
-              in Just (m', k2, as)
-        GT -> let !m' = M.insert k2 as m
-              in Just (m', k1, [a1])
+      if k1 == k2
+        then Just (m, k1, a1 : as)
+        else let !m' = M.insertWith (<>) k2 as m
+             in Just (m', k1, [a1])
 
 -- | Parses data in the raw wire format into an untyped 'Map' representation.
 decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
