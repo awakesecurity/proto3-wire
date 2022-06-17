@@ -133,7 +133,7 @@ toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
     makeMap = close . foldl' combineSeen Nothing
 
     close Nothing = M.empty
-    close (Just (m, k, v)) = M.insert k v m
+    close (Just (m, k, v)) = M.insertWith (++) k v m
 
     -- If keys are in order, then we don't have to make any lookups,
     -- we just maintain the active element.
@@ -143,7 +143,12 @@ toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
     combineSeen (Just (m, k2, as)) (k1, a1) =
       if k1 == k2
         then Just (m, k1, a1 : as)
-        else let !m' = M.insertWith (<>) k2 as m
+        -- It might seem that we want to use DList but we don't because:
+        -- - alter has worse performance than insertWith, and there's no upsert
+        -- - We're building up a list of elements in a recursive way
+        --    that will be opaque to GHC
+        -- - DList would add another dependency
+        else let !m' = M.insertWith (++) k2 as m
              in Just (m', k1, [a1])
 
 -- | Parses data in the raw wire format into an untyped 'Map' representation.
