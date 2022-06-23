@@ -135,9 +135,6 @@ toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
     close Nothing = M.empty
     close (Just (m, k, v)) = M.insertWith (++) k v m
 
-    -- If keys are in order, then we don't have to make any lookups,
-    -- we just maintain the active element.
-    -- Out of order keys will lookup in the map
     combineSeen :: Maybe (M.IntMap [v], Int, [v]) -> (Int, v) -> Maybe (M.IntMap [v], Int, [v])
     combineSeen Nothing (k1, a1) = Just (M.empty, k1, [a1])
     combineSeen (Just (m, k2, as)) (k1, a1) =
