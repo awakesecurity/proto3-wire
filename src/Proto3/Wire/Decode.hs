@@ -74,8 +74,6 @@ module Proto3.Wire.Decode
     , embedded'
       -- * ZigZag codec
     , zigZagDecode
-      -- * Exported For Doctest Only
-    , toMap
     ) where
 
 import           Control.Applicative
@@ -123,24 +121,22 @@ data ParsedField = VarintField Word64
 -- | Convert key-value pairs to a map of keys to a sequence of values with that
 -- key, in their reverse occurrence order.
 --
--- >>> toMap ([(FieldNumber 1, 3),(FieldNumber 2, 4),(FieldNumber 1, 6)] :: [(FieldNumber,Int)])
--- fromList [(1,[6,3]),(2,[4])]
 --
-toMap :: [(FieldNumber, v)] -> M.IntMap [v]
-toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
+decodeWire :: B.ByteString -> Either String RawMessage
+decodeWire = decodeWire0 combineSeen' Nothing close
   where
-    makeMap :: [(Int, v)] -> M.IntMap [v]
-    makeMap = close . foldl' combineSeen Nothing
-
     close Nothing = M.empty
     close (Just (m, k, v)) = M.insertWith (++) k v m
+
+    combineSeen' :: Maybe (M.IntMap [v], Int, [v]) -> FieldNumber -> v -> Maybe (M.IntMap [v], Int, [v])
+    combineSeen' b (FieldNumber fn) v = combineSeen b (fromIntegral fn) v
 
     -- If keys are in order, then we don't have to make any lookups,
     -- we just maintain the active element.
     -- Out of order keys will lookup in the map
-    combineSeen :: Maybe (M.IntMap [v], Int, [v]) -> (Int, v) -> Maybe (M.IntMap [v], Int, [v])
-    combineSeen Nothing (k1, a1) = Just (M.empty, k1, [a1])
-    combineSeen (Just (m, k2, as)) (k1, a1) =
+    combineSeen :: Maybe (M.IntMap [v], Int, [v]) -> Int -> v -> Maybe (M.IntMap [v], Int, [v])
+    combineSeen Nothing k1 a1 = Just (M.empty, k1, [a1])
+    combineSeen (Just (m, k2, as)) k1 a1 =
       if k1 == k2
         then Just (m, k1, a1 : as)
         -- It might seem that we want to use DList but we don't because:
@@ -150,20 +146,18 @@ toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
         -- - DList would add another dependency
         else let !m' = M.insertWith (++) k2 as m
              in Just (m', k1, [a1])
-{-# NOINLINE toMap #-}
 
 -- | Parses data in the raw wire format into an untyped 'Map' representation.
-decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
-decodeWire bstr = drloop bstr []
+decodeWire0 :: (b -> FieldNumber -> ParsedField -> b) -> b -> (b -> r) -> B.ByteString -> Either String r
+decodeWire0 cl z finish bstr = drloop bstr z
  where
-   drloop !bs xs | B.null bs = Right $ reverse xs
+   drloop !bs xs | B.null bs = Right $ finish xs
    drloop !bs xs | otherwise = do
       (w, rest) <- takeVarInt bs
       wt <- gwireType $ fromIntegral (w .&. 7)
       let fn = w `shiftR` 3
       (res, rest2) <- takeWT wt rest
-      drloop rest2 ((FieldNumber fn,res):xs)
-
+      drloop rest2 (cl xs (FieldNumber fn) res)
 
 eitherUncons :: B.ByteString -> Either String (Word8, B.ByteString)
 eitherUncons = maybe (Left "failed to parse varint128") Right . B.uncons
@@ -313,7 +307,7 @@ foldFields parsers = foldM applyOne
 parse :: Parser RawMessage a -> B.ByteString -> Either ParseError a
 parse parser bs = case decodeWire bs of
     Left err -> Left (BinaryError (pack err))
-    Right res -> runParser parser (toMap res)
+    Right res -> runParser parser res
 {-# INLINE parse #-}
 
 -- | To comply with the protobuf spec, if there are multiple fields with the same
@@ -346,6 +340,7 @@ cerealTypeError expected cerealErr = (BinaryError (pack msg))
 throwCerealError :: String -> String -> Either ParseError a
 throwCerealError expected cerealErr =
     Left (cerealTypeError expected cerealErr)
+{-# INLINE throwCerealError #-}
 
 parseVarInt :: Integral a => Parser RawPrimitive a
 parseVarInt = Parser $
@@ -583,7 +578,7 @@ embeddedToParsedFields (LengthDelimitedField bs) =
         Left err -> Left (EmbeddedError ("Failed to parse embedded message: "
                                              <> (pack err))
                                         Nothing)
-        Right result -> return (toMap result)
+        Right result -> Right result
 embeddedToParsedFields wrong =
     throwWireTypeError "embedded" wrong
 
