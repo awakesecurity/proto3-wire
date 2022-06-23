@@ -150,6 +150,7 @@ toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
         -- - DList would add another dependency
         else let !m' = M.insertWith (++) k2 as m
              in Just (m', k1, [a1])
+{-# NOINLINE toMap #-}
 
 -- | Parses data in the raw wire format into an untyped 'Map' representation.
 decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
@@ -166,7 +167,6 @@ decodeWire bstr = drloop bstr []
 
 eitherUncons :: B.ByteString -> Either String (Word8, B.ByteString)
 eitherUncons = maybe (Left "failed to parse varint128") Right . B.uncons
-
 
 takeVarInt :: B.ByteString -> Either String (Word64, B.ByteString)
 takeVarInt !bs =
@@ -314,6 +314,7 @@ parse :: Parser RawMessage a -> B.ByteString -> Either ParseError a
 parse parser bs = case decodeWire bs of
     Left err -> Left (BinaryError (pack err))
     Right res -> runParser parser (toMap res)
+{-# INLINE parse #-}
 
 -- | To comply with the protobuf spec, if there are multiple fields with the same
 -- field number, this will always return the last one.
@@ -322,21 +323,29 @@ parsedField xs = case xs of
     [] -> Nothing
     (x:_) -> Just x
 
-throwWireTypeError :: Show input
-                   => String
-                   -> input
-                   -> Either ParseError expected
-throwWireTypeError expected wrong =
-    Left (WireTypeError (pack msg))
+wireTypeError :: String
+              -> RawPrimitive
+              -> ParseError
+wireTypeError expected wrong = WireTypeError (pack msg)
   where
     msg = "Wrong wiretype. Expected " ++ expected ++ " but got " ++ show wrong
 
-throwCerealError :: String -> String -> Either ParseError a
-throwCerealError expected cerealErr =
-    Left (BinaryError (pack msg))
+throwWireTypeError :: String
+                   -> RawPrimitive
+                   -> Either ParseError expected
+throwWireTypeError expected wrong =
+    Left (wireTypeError expected wrong)
+{-# INLINE throwWireTypeError #-}
+
+cerealTypeError :: String -> String -> ParseError
+cerealTypeError expected cerealErr = (BinaryError (pack msg))
   where
     msg = "Failed to parse contents of " ++
         expected ++ " field. " ++ "Error from cereal was: " ++ cerealErr
+
+throwCerealError :: String -> String -> Either ParseError a
+throwCerealError expected cerealErr =
+    Left (cerealTypeError expected cerealErr)
 
 parseVarInt :: Integral a => Parser RawPrimitive a
 parseVarInt = Parser $
@@ -508,6 +517,7 @@ sfixed64 = runGetFixed64 getInt64le
 -- > one float `at` fieldNumber 1 :: Parser RawMessage (Maybe Float)
 at :: Parser RawField a -> FieldNumber -> Parser RawMessage a
 at parser fn = Parser $ runParser parser . fromMaybe mempty . M.lookup (fromIntegral . getFieldNumber $ fn)
+{-# INLINE at #-}
 
 -- | Try to parse different field numbers with their respective parsers. This is
 -- used to express alternative between possible fields of a oneof.
@@ -560,6 +570,11 @@ one parser def = Parser (fmap (fromMaybe def) . traverse (runParser parser) . pa
 repeated :: Parser RawPrimitive a -> Parser RawField [a]
 repeated parser = Parser $ fmap reverse . mapM (runParser parser)
 
+
+embeddedParseError :: ParseError -> ParseError
+embeddedParseError err = EmbeddedError "Failed to parse embedded message." (Just err)
+{-# NOINLINE embeddedParseError #-}
+
 -- | For a field containing an embedded message, parse as far as getting the
 -- wire-level fields out of the message.
 embeddedToParsedFields :: RawPrimitive -> Either ParseError RawMessage
@@ -590,6 +605,7 @@ embedded p = Parser $
                let combinedMap = foldl' (M.unionWith (<>)) M.empty innerMaps
                parsed <- runParser p combinedMap
                return $ Just parsed
+{-# INLINE embedded #-}
 
 -- | Create a primitive parser for an embedded message from a message parser.
 --
@@ -600,10 +616,11 @@ embedded' parser = Parser $
     \case
         LengthDelimitedField bs ->
             case parse parser bs of
-                Left err -> Left (EmbeddedError "Failed to parse embedded message."
-                                                (Just err))
+                Left err -> Left (embeddedParseError err)
                 Right result -> return result
         wrong -> throwWireTypeError "embedded" wrong
+{-# INLINE embedded' #-}
+
 
 
 -- TODO test repeated and embedded better for reverse logic...
