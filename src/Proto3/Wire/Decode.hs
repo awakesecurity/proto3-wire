@@ -74,8 +74,6 @@ module Proto3.Wire.Decode
     , embedded'
       -- * ZigZag codec
     , zigZagDecode
-      -- * Exported For Doctest Only
-    , toMap
     ) where
 
 import           Control.Applicative
@@ -123,21 +121,19 @@ data ParsedField = VarintField Word64
 -- | Convert key-value pairs to a map of keys to a sequence of values with that
 -- key, in their reverse occurrence order.
 --
--- >>> toMap ([(FieldNumber 1, 3),(FieldNumber 2, 4),(FieldNumber 1, 6)] :: [(FieldNumber,Int)])
--- fromList [(1,[6,3]),(2,[4])]
 --
-toMap :: [(FieldNumber, v)] -> M.IntMap [v]
-toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
+decodeWire :: B.ByteString -> Either String RawMessage
+decodeWire = decodeWire0 combineSeen' Nothing close
   where
-    makeMap :: [(Int, v)] -> M.IntMap [v]
-    makeMap = close . foldl' combineSeen Nothing
-
     close Nothing = M.empty
     close (Just (m, k, v)) = M.insertWith (++) k v m
 
-    combineSeen :: Maybe (M.IntMap [v], Int, [v]) -> (Int, v) -> Maybe (M.IntMap [v], Int, [v])
-    combineSeen Nothing (k1, a1) = Just (M.empty, k1, [a1])
-    combineSeen (Just (m, k2, as)) (k1, a1) =
+    combineSeen' :: Maybe (M.IntMap [v], Int, [v]) -> FieldNumber -> v -> Maybe (M.IntMap [v], Int, [v])
+    combineSeen' b (FieldNumber fn) v = combineSeen b (fromIntegral fn) v
+
+    combineSeen :: Maybe (M.IntMap [v], Int, [v]) -> Int -> v -> Maybe (M.IntMap [v], Int, [v])
+    combineSeen Nothing k1 a1 = Just (M.empty, k1, [a1])
+    combineSeen (Just (m, k2, as)) k1 a1 =
       if k1 == k2
         then Just (m, k1, a1 : as)
         -- It might seem that we want to use DList but we don't because:
@@ -149,21 +145,19 @@ toMap kvs0 = makeMap . map (first (fromIntegral . getFieldNumber)) $ kvs0
              in Just (m', k1, [a1])
 
 -- | Parses data in the raw wire format into an untyped 'Map' representation.
-decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
-decodeWire bstr = drloop bstr []
+decodeWire0 :: (b -> FieldNumber -> ParsedField -> b) -> b -> (b -> r) -> B.ByteString -> Either String r
+decodeWire0 cl z finish bstr = drloop bstr z
  where
-   drloop !bs xs | B.null bs = Right $ reverse xs
+   drloop !bs xs | B.null bs = Right $ finish xs
    drloop !bs xs | otherwise = do
       (w, rest) <- takeVarInt bs
       wt <- gwireType $ fromIntegral (w .&. 7)
       let fn = w `shiftR` 3
       (res, rest2) <- takeWT wt rest
-      drloop rest2 ((FieldNumber fn,res):xs)
-
+      drloop rest2 (cl xs (FieldNumber fn) res)
 
 eitherUncons :: B.ByteString -> Either String (Word8, B.ByteString)
 eitherUncons = maybe (Left "failed to parse varint128") Right . B.uncons
-
 
 takeVarInt :: B.ByteString -> Either String (Word64, B.ByteString)
 takeVarInt !bs =
@@ -310,7 +304,8 @@ foldFields parsers = foldM applyOne
 parse :: Parser RawMessage a -> B.ByteString -> Either ParseError a
 parse parser bs = case decodeWire bs of
     Left err -> Left (BinaryError (pack err))
-    Right res -> runParser parser (toMap res)
+    Right res -> runParser parser res
+{-# INLINE parse #-}
 
 -- | To comply with the protobuf spec, if there are multiple fields with the same
 -- field number, this will always return the last one.
@@ -319,21 +314,30 @@ parsedField xs = case xs of
     [] -> Nothing
     (x:_) -> Just x
 
-throwWireTypeError :: Show input
-                   => String
-                   -> input
-                   -> Either ParseError expected
-throwWireTypeError expected wrong =
-    Left (WireTypeError (pack msg))
+wireTypeError :: String
+              -> RawPrimitive
+              -> ParseError
+wireTypeError expected wrong = WireTypeError (pack msg)
   where
     msg = "Wrong wiretype. Expected " ++ expected ++ " but got " ++ show wrong
 
-throwCerealError :: String -> String -> Either ParseError a
-throwCerealError expected cerealErr =
-    Left (BinaryError (pack msg))
+throwWireTypeError :: String
+                   -> RawPrimitive
+                   -> Either ParseError expected
+throwWireTypeError expected wrong =
+    Left (wireTypeError expected wrong)
+{-# INLINE throwWireTypeError #-}
+
+cerealTypeError :: String -> String -> ParseError
+cerealTypeError expected cerealErr = (BinaryError (pack msg))
   where
     msg = "Failed to parse contents of " ++
         expected ++ " field. " ++ "Error from cereal was: " ++ cerealErr
+
+throwCerealError :: String -> String -> Either ParseError a
+throwCerealError expected cerealErr =
+    Left (cerealTypeError expected cerealErr)
+{-# INLINE throwCerealError #-}
 
 parseVarInt :: Integral a => Parser RawPrimitive a
 parseVarInt = Parser $
@@ -505,6 +509,7 @@ sfixed64 = runGetFixed64 getInt64le
 -- > one float `at` fieldNumber 1 :: Parser RawMessage (Maybe Float)
 at :: Parser RawField a -> FieldNumber -> Parser RawMessage a
 at parser fn = Parser $ runParser parser . fromMaybe mempty . M.lookup (fromIntegral . getFieldNumber $ fn)
+{-# INLINE at #-}
 
 -- | Try to parse different field numbers with their respective parsers. This is
 -- used to express alternative between possible fields of a oneof.
@@ -557,15 +562,20 @@ one parser def = Parser (fmap (fromMaybe def) . traverse (runParser parser) . pa
 repeated :: Parser RawPrimitive a -> Parser RawField [a]
 repeated parser = Parser $ fmap reverse . mapM (runParser parser)
 
+
+embeddedParseError :: String -> ParseError
+embeddedParseError err = EmbeddedError msg Nothing
+  where
+    msg = "Failed to parse embedded message: " <> (pack err)
+{-# NOINLINE embeddedParseError #-}
+
 -- | For a field containing an embedded message, parse as far as getting the
 -- wire-level fields out of the message.
 embeddedToParsedFields :: RawPrimitive -> Either ParseError RawMessage
 embeddedToParsedFields (LengthDelimitedField bs) =
     case decodeWire bs of
-        Left err -> Left (EmbeddedError ("Failed to parse embedded message: "
-                                             <> (pack err))
-                                        Nothing)
-        Right result -> return (toMap result)
+        Left err -> Left (embeddedParseError err)
+        Right result -> Right result
 embeddedToParsedFields wrong =
     throwWireTypeError "embedded" wrong
 
@@ -587,6 +597,7 @@ embedded p = Parser $
                let combinedMap = foldl' (M.unionWith (<>)) M.empty innerMaps
                parsed <- runParser p combinedMap
                return $ Just parsed
+{-# INLINE embedded #-}
 
 -- | Create a primitive parser for an embedded message from a message parser.
 --
@@ -597,10 +608,11 @@ embedded' parser = Parser $
     \case
         LengthDelimitedField bs ->
             case parse parser bs of
-                Left err -> Left (EmbeddedError "Failed to parse embedded message."
-                                                (Just err))
+                Left err -> Left (EmbeddedError "Failed to parse embedded message." (Just err))
                 Right result -> return result
         wrong -> throwWireTypeError "embedded" wrong
+{-# INLINE embedded' #-}
+
 
 
 -- TODO test repeated and embedded better for reverse logic...
