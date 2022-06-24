@@ -1,3 +1,7 @@
+1.4.0
+  - Improve decoding performance
+  - Remove internal toMap function
+
 1.3.0
   - Support GHC 9.2
   - Prevent inlining for GHCJS
