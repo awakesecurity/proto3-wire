@@ -563,8 +563,10 @@ repeated :: Parser RawPrimitive a -> Parser RawField [a]
 repeated parser = Parser $ fmap reverse . mapM (runParser parser)
 
 
-embeddedParseError :: ParseError -> ParseError
-embeddedParseError err = EmbeddedError "Failed to parse embedded message." (Just err)
+embeddedParseError :: String -> ParseError
+embeddedParseError err = EmbeddedError msg Nothing
+  where
+    msg = "Failed to parse embedded message: " <> (pack err)
 {-# NOINLINE embeddedParseError #-}
 
 -- | For a field containing an embedded message, parse as far as getting the
@@ -572,9 +574,7 @@ embeddedParseError err = EmbeddedError "Failed to parse embedded message." (Just
 embeddedToParsedFields :: RawPrimitive -> Either ParseError RawMessage
 embeddedToParsedFields (LengthDelimitedField bs) =
     case decodeWire bs of
-        Left err -> Left (EmbeddedError ("Failed to parse embedded message: "
-                                             <> (pack err))
-                                        Nothing)
+        Left err -> Left (embeddedParseError err)
         Right result -> Right result
 embeddedToParsedFields wrong =
     throwWireTypeError "embedded" wrong
@@ -608,7 +608,7 @@ embedded' parser = Parser $
     \case
         LengthDelimitedField bs ->
             case parse parser bs of
-                Left err -> Left (embeddedParseError err)
+                Left err -> Left (EmbeddedError "Failed to parse embedded message." (Just err))
                 Right result -> return result
         wrong -> throwWireTypeError "embedded" wrong
 {-# INLINE embedded' #-}
