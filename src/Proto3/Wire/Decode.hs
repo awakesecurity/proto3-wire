@@ -122,8 +122,8 @@ data ParsedField = VarintField Word64
 -- key, in their reverse occurrence order.
 --
 --
-decodeWire :: B.ByteString -> Either String RawMessage
-decodeWire = decodeWire0 combineSeen' Nothing close
+decodeWireMessage :: B.ByteString -> Either String RawMessage
+decodeWireMessage = decodeWire0 combineSeen' Nothing close
   where
     close Nothing = M.empty
     close (Just (m, k, v)) = M.insertWith (++) k v m
@@ -144,6 +144,9 @@ decodeWire = decodeWire0 combineSeen' Nothing close
         else let !m' = M.insertWith (++) k2 as m
              in Just (m', k1, [a1])
 
+decodeWire :: B.ByteString -> Either String [(FieldNumber, ParsedField)]
+decodeWire = decodeWire0 (\xs k v -> (k,v):xs) [] reverse
+
 -- | Parses data in the raw wire format into an untyped 'Map' representation.
 decodeWire0 :: (b -> FieldNumber -> ParsedField -> b) -> b -> (b -> r) -> B.ByteString -> Either String r
 decodeWire0 cl z finish bstr = drloop bstr z
@@ -155,6 +158,7 @@ decodeWire0 cl z finish bstr = drloop bstr z
       let fn = w `shiftR` 3
       (res, rest2) <- takeWT wt rest
       drloop rest2 (cl xs (FieldNumber fn) res)
+{-# INLINE decodeWire0 #-}
 
 eitherUncons :: B.ByteString -> Either String (Word8, B.ByteString)
 eitherUncons = maybe (Left "failed to parse varint128") Right . B.uncons
@@ -203,6 +207,7 @@ takeVarInt !bs =
                 if w10 < 128 then return (val9 + (fromIntegral w10 `shiftL` 63), r10) else do
 
                  Left ("failed to parse varint128: too big; " ++ show val6)
+{-# INLINE takeVarInt #-}
 
 
 gwireType :: Word8 -> Either String WireType
@@ -211,6 +216,7 @@ gwireType 5 = return Fixed32
 gwireType 1 = return Fixed64
 gwireType 2 = return LengthDelimited
 gwireType wt = Left $ "wireType got unknown wire type: " ++ show wt
+{-# INLINE gwireType #-}
 
 safeSplit :: Int -> B.ByteString -> Either String (B.ByteString, B.ByteString)
 safeSplit !i !b | B.length b < i = Left "failed to parse varint128: not enough bytes"
@@ -223,6 +229,7 @@ takeWT Fixed64 !b = fmap (first Fixed64Field) $ safeSplit 8 b
 takeWT LengthDelimited b = do
    (!len, rest) <- takeVarInt b
    fmap (first LengthDelimitedField) $ safeSplit (fromIntegral len) rest
+{-# INLINE takeWT #-}
 
 
 -- * Parser Interface
@@ -302,7 +309,7 @@ foldFields parsers = foldM applyOne
 -- | Parse a message (encoded in the raw wire format) using the specified
 -- `Parser`.
 parse :: Parser RawMessage a -> B.ByteString -> Either ParseError a
-parse parser bs = case decodeWire bs of
+parse parser bs = case decodeWireMessage bs of
     Left err -> Left (BinaryError (pack err))
     Right res -> runParser parser res
 {-# INLINE parse #-}
@@ -573,7 +580,7 @@ embeddedParseError err = EmbeddedError msg Nothing
 -- wire-level fields out of the message.
 embeddedToParsedFields :: RawPrimitive -> Either ParseError RawMessage
 embeddedToParsedFields (LengthDelimitedField bs) =
-    case decodeWire bs of
+    case decodeWireMessage bs of
         Left err -> Left (embeddedParseError err)
         Right result -> Right result
 embeddedToParsedFields wrong =
