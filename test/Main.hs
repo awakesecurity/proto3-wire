@@ -16,6 +16,7 @@
 
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE ScopedTypeVariables #-}
 
 {-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 
@@ -70,6 +71,7 @@ tests = testGroup "Tests" [ roundTripTests
                           , decodeNonsense
                           , varIntHeavyTests
                           , packedLargeTests
+                          , decodeWireRoundTrip
                           ]
 
 data StringOrInt64 = TString T.Text | TInt64 Int64
@@ -215,7 +217,6 @@ roundTripTests = testGroup "Roundtrip tests"
                                                , (fieldNumber 3, Just . TString <$> one Decode.text mempty)
                                                ]
                                         )
-
                            ]
 
 roundTrip :: (Show a, Eq a, Arbitrary a)
@@ -230,6 +231,16 @@ roundTrip name encode decode =
             case Decode.parse decode (BL.toStrict bytes) of
                 Left _ -> error "Could not decode encoded message"
                 Right x' -> x === x'
+
+
+decodeWireRoundTrip :: TestTree
+decodeWireRoundTrip = QC.testProperty "decodeWire round trips" $
+  \(inp :: [(FieldNumber, Int32)]) ->
+    let bytes = Encode.toLazyByteString (foldMap (\(k, v) -> Encode.int32 k v) inp)
+        x = map (second $ Decode.VarintField . fromIntegral) inp
+    in case Decode.decodeWire (BL.toStrict bytes) of
+          Left _ -> error "decodeWire failed"
+          Right x' -> x === x'
 
 buildSingleChunk :: TestTree
 buildSingleChunk = HU.testCase "Legacy Builder creates a single chunk" $ do
