@@ -102,6 +102,8 @@ import           Data.Word               ( Word8, Word32, Word64 )
 import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 
+import Debug.Trace
+
 -- $setup
 -- >>> :set -XOverloadedStrings
 -- >>> :module Proto3.Wire.Decode Proto3.Wire.Types
@@ -448,9 +450,9 @@ text = Parser $
 shortText :: Parser RawPrimitive Text.Short.ShortText
 shortText = Parser $
     \case
-        LengthDelimitedField bs ->
+        LengthDelimitedField bs -> traceShow ("input" :: String, bs) $
             case Text.Short.fromByteString bs of
-                Nothing -> Left (BinaryError (pack ("Failed to decode UTF-8")))
+                Nothing -> Left (BinaryError (pack ("Failed to decode UTF-8: " ++ show bs)))
                 Just txt -> return txt
         wrong -> throwWireTypeError "string" wrong
 
