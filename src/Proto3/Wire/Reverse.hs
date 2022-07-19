@@ -190,7 +190,7 @@ shortByteString bs = withUnused $ \unused ->
         writeChunk bs 0 len
       else
         let rest = len - unused in
-        writeChunk bs unused rest <> reallocate rest <> writeChunk bs 0 unused
+        writeChunk bs 0 rest <> reallocate rest <> writeChunk bs rest unused
   where
     writeChunk src off len =
       unsafeConsume len $ \dst ->
