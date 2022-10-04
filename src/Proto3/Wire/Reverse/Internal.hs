@@ -31,6 +31,8 @@ module Proto3.Wire.Reverse.Internal
     , etaBuildR
     , runBuildR
     , newBuffer
+    , SealedState (SealedState, sealedSB, totalSB, stateVarSB, statePtrSB, recycledSB)
+    , sealBuffer
     , smallChunkSize
     , withUnused
     , withTotal
