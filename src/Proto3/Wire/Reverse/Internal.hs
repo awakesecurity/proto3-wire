@@ -30,6 +30,8 @@ module Proto3.Wire.Reverse.Internal
     , fromBuildR
     , etaBuildR
     , runBuildR
+    , newBuffer
+    , smallChunkSize
     , withUnused
     , withTotal
     , withLengthOf
