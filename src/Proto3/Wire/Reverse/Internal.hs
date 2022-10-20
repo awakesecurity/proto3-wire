@@ -24,7 +24,7 @@
 
 module Proto3.Wire.Reverse.Internal
     ( BuildR (..)
-    , BuildRState (..),
+    , BuildRState (..)
     , appendBuildR
     , foldlRVector
     , toBuildR
