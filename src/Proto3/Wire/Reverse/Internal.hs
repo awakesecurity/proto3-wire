@@ -35,7 +35,9 @@ module Proto3.Wire.Reverse.Internal
     , SealedState (SealedState, sealedSB, totalSB, stateVarSB, statePtrSB, recycledSB)
     , sealBuffer
     , smallChunkSize
+    , readState
     , writeState
+    , readSpace
     , writeSpace
     , metaDataSize
     , metaDataAlign
