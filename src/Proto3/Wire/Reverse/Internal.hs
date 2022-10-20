@@ -37,6 +37,7 @@ module Proto3.Wire.Reverse.Internal
     , smallChunkSize
     , withUnused
     , withTotal
+    , readTotal
     , withLengthOf
     , withLengthOf#
     , reallocate
