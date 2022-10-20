@@ -13,10 +13,6 @@ extra-source-files:  CHANGELOG.md
 
 library
   ghc-options:
-    -ddump-to-file
-    -ddump-simpl
-    -dsuppress-uniques
-    -ddump-stg
 
   exposed-modules:     Proto3.Wire
                        Proto3.Wire.Builder
