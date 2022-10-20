@@ -38,6 +38,7 @@ module Proto3.Wire.Reverse.Internal
     , writeState
     , writeSpace
     , metaDataSize
+    , metaDataAlign
     , withUnused
     , withTotal
     , readTotal
