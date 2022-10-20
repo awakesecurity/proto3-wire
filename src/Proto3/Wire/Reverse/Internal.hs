@@ -23,7 +23,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module Proto3.Wire.Reverse.Internal
-    ( BuildR(..)
+    ( BuildR (..)
+    , BuildRState (..),
     , appendBuildR
     , foldlRVector
     , toBuildR
