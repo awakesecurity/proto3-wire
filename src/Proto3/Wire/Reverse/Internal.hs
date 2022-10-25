@@ -31,13 +31,12 @@ module Proto3.Wire.Reverse.Internal
     , fromBuildR
     , etaBuildR
     , runBuildR
-    , newBuffer
     , SealedState (SealedState, sealedSB, totalSB, stateVarSB, statePtrSB, recycledSB)
     , sealBuffer
     , smallChunkSize
     , readState
-    , writeState
     , readSpace
+    , writeState
     , writeSpace
     , metaDataSize
     , metaDataAlign
