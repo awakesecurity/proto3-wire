@@ -23,15 +23,26 @@
 {-# LANGUAGE UnboxedTuples #-}
 
 module Proto3.Wire.Reverse.Internal
-    ( BuildR(..)
+    ( BuildR (..)
+    , BuildRState (..)
     , appendBuildR
     , foldlRVector
     , toBuildR
     , fromBuildR
     , etaBuildR
     , runBuildR
+    , SealedState (SealedState, sealedSB, totalSB, stateVarSB, statePtrSB, recycledSB)
+    , sealBuffer
+    , smallChunkSize
+    , readState
+    , readSpace
+    , writeState
+    , writeSpace
+    , metaDataSize
+    , metaDataAlign
     , withUnused
     , withTotal
+    , readTotal
     , withLengthOf
     , withLengthOf#
     , reallocate
