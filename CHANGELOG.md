@@ -1,6 +1,7 @@
 1.4.0
   - Improve decoding performance
   - Remove internal toMap function
+  - Support ShortByteString and ShortText
 
 1.3.0
   - Support GHC 9.2
