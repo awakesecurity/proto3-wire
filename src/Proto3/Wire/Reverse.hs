@@ -63,6 +63,7 @@ module Proto3.Wire.Reverse
     , stringUtf8
     , textUtf8
     , lazyTextUtf8
+    , shortTextUtf8
     , wordBase128LEVar
     , wordBase128LEVar_inline
     , word32Base128LEVar
@@ -96,6 +97,7 @@ import qualified Data.Text                     as T
 import qualified Data.Text.Internal            as TI
 import qualified Data.Text.Internal.Fusion     as TIF
 import qualified Data.Text.Lazy                as TL
+import qualified Data.Text.Short               as TS
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           Foreign                       ( castPtr )
@@ -188,7 +190,7 @@ shortByteString bs = withUnused $ \unused ->
         writeChunk bs 0 len
       else
         let rest = len - unused in
-        writeChunk bs unused rest <> reallocate rest <> writeChunk bs 0 unused
+        writeChunk bs 0 rest <> reallocate rest <> writeChunk bs rest unused
   where
     writeChunk src off len =
       unsafeConsume len $ \dst ->
@@ -544,6 +546,19 @@ textUtf8 = etaBuildR $ \txt@(TI.Text _ _ word16Count) ->
 -- Proto3.Wire.Reverse.lazyByteString "\226\134\144\226\134\145\226\134\146\226\134\147"
 lazyTextUtf8 :: TL.Text -> BuildR
 lazyTextUtf8 = TL.foldrChunks ((<>) . textUtf8) mempty
+
+-- | Convert a `TS.ShortText` to a `BuildR` using a @UTF-8@ encoding.
+--
+-- > shortTextUtf8 (x <> y) = shortTextUtf8 x <> shortTextUtf8 y
+-- >
+-- > shortTextUtf8 mempty = mempty
+--
+-- >>> shortTextUtf8 "ABC"
+-- Proto3.Wire.Reverse.lazyByteString "ABC"
+-- >>> shortTextUtf8 "←↑→↓"
+-- Proto3.Wire.Reverse.lazyByteString "\226\134\144\226\134\145\226\134\146\226\134\147"
+shortTextUtf8 :: TS.ShortText -> BuildR
+shortTextUtf8 = shortByteString . TS.toShortByteString
 
 -- | Convert a `Word` to a `BuildR` using this variable-length encoding:
 --

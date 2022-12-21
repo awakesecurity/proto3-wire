@@ -1,3 +1,6 @@
+1.4.1
+  - Support ShortByteString and ShortText
+
 1.4.0
   - Improve decoding performance
   - Remove internal toMap function

@@ -81,8 +81,10 @@ module Proto3.Wire.Encode
     , bytes
     , string
     , text
+    , shortText
     , byteString
     , lazyByteString
+    , shortByteString
       -- * Embedded Messages
     , embedded
       -- * Packed repeated fields
@@ -105,9 +107,11 @@ import           Data.Bits                     ( (.|.), shiftL, shiftR, xor,
                                                  FiniteBits, finiteBitSize )
 import qualified Data.ByteString               as B
 import qualified Data.ByteString.Lazy          as BL
+import qualified Data.ByteString.Short         as BS
 import           Data.Coerce                   ( coerce )
 import           Data.Int                      ( Int32, Int64 )
 import qualified Data.Text.Lazy                as Text.Lazy
+import qualified Data.Text.Short               as Text.Short
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word32, Word64 )
 import           GHC.TypeLits                  ( KnownNat, Nat, type (+) )
@@ -483,6 +487,16 @@ text :: FieldNumber -> Text.Lazy.Text -> MessageBuilder
 text num = embedded num . MessageBuilder . RB.lazyTextUtf8
 {-# INLINE text #-}
 
+-- | Encode a `Text.Short.ShortText` as UTF-8.
+--
+-- For example:
+--
+-- >>> 1 `shortText` "testing"
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
+shortText :: FieldNumber -> Text.Short.ShortText -> MessageBuilder
+shortText num = embedded num . MessageBuilder . RB.shortTextUtf8
+{-# INLINE shortText #-}
+
 -- | Encode a collection of bytes in the form of a strict 'B.ByteString'.
 --
 -- For example:
@@ -502,6 +516,16 @@ byteString num = embedded num . MessageBuilder . RB.byteString
 lazyByteString :: FieldNumber -> BL.ByteString -> MessageBuilder
 lazyByteString num = embedded num . MessageBuilder . RB.lazyByteString
 {-# INLINE lazyByteString #-}
+
+-- | Encode a `BS.ShortByteString`.
+--
+-- For example:
+--
+-- >>> 1 `shortByteString` "testing"
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
+shortByteString :: FieldNumber -> BS.ShortByteString -> MessageBuilder
+shortByteString num = embedded num . MessageBuilder . RB.shortByteString
+{-# INLINE shortByteString #-}
 
 -- | Encode varints in the space-efficient packed format.
 -- But consider 'packedVarintsV', which may be faster.
