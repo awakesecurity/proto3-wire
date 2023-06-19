@@ -1,4 +1,4 @@
-# proto3-wire
+# `proto3-wire`
 
 [![Build Status](https://github.com/awakesecurity/proto3-wire/actions/workflows/ci.yml/badge.svg)](https://github.com/awakesecurity/proto3-wire/actions/workflows/ci.yml)
 
