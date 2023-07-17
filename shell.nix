@@ -10,5 +10,6 @@ let
 in proto3-wire.env.overrideAttrs (old: {
   buildInputs = (old.buildInputs or []) ++ [
     pkgs.cabal-install
+    pkgs.stack
   ];
 })

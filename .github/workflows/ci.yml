@@ -70,4 +70,5 @@ jobs:
       - name: Test
         run: stack test --system-ghc --stack-yaml stack-${{ matrix.ghc }}.yaml
         # Test fails with ld warnings on macos-stack combo
-        continue-on-error: ${{ matrix.os == 'macos-latest' }}
+        # doctest fails with ghc-9.0.2 + stack: https://github.com/sol/doctest/issues/327
+        continue-on-error: ${{ matrix.os == 'macos-latest' }} or ${{ matrix.ghc == '9.0.2' }}
