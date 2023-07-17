@@ -11,7 +11,10 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-
+        ghc:
+          - 8107
+          - 902
+          - 924
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -26,8 +29,8 @@ jobs:
         with:
           name: awakesecurity
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
-      - run: nix-build
+      - run: nix-build --arg compiler ghc-${{ matrix.ghc }}
+        name: Build Package
 
   stack-build:
     strategy:
@@ -36,6 +39,8 @@ jobs:
           - ubuntu-latest
           - macos-latest
         ghc:
+          - 8.10.7
+          - 9.0.2
           - 9.2.8
 
     runs-on: ${{ matrix.os }}
