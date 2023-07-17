@@ -65,9 +65,9 @@ jobs:
             ${{ runner.os }}-${{ matrix.ghc }}-stack
 
       - name: Build
-        run: stack build --system-ghc
+        run: stack build --system-ghc --stack-yaml stack-${{ matrix.ghc }}.yaml
 
       - name: Test
-        run: stack test --system-ghc
+        run: stack test --system-ghc --stack-yaml stack-${{ matrix.ghc }}.yaml
         # Test fails with ld warnings on macos-stack combo
         continue-on-error: ${{ matrix.os == 'macos-latest' }}
