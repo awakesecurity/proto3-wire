@@ -1,5 +1,9 @@
+{ compiler ? "ghc8107" }:
+
 let
-  pkgs = import ./nix/pkgs.nix;
+  pkgs = import ./nix/pkgs.nix {
+    inherit compiler;
+  };
 
   proto3-wire = pkgs.haskellPackages.proto3-wire;
 
