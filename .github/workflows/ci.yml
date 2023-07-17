@@ -29,7 +29,7 @@ jobs:
         with:
           name: awakesecurity
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-      - run: nix-build --arg compiler ghc-${{ matrix.ghc }}
+      - run: nix-build --argstr compiler ghc${{ matrix.ghc }}
         name: Build Package
 
   stack-build:
