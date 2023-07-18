@@ -11,7 +11,10 @@ jobs:
         os:
           - ubuntu-latest
           - macos-latest
-
+        ghc:
+          - 8107
+          - 902
+          - 924
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -26,8 +29,8 @@ jobs:
         with:
           name: awakesecurity
           authToken: '${{ secrets.CACHIX_AUTH_TOKEN }}'
-
-      - run: nix-build
+      - run: nix-build --argstr compiler ghc${{ matrix.ghc }}
+        name: Build Package
 
   stack-build:
     strategy:
@@ -36,6 +39,8 @@ jobs:
           - ubuntu-latest
           - macos-latest
         ghc:
+          - 8.10.7
+          - 9.0.2
           - 9.2.8
 
     runs-on: ${{ matrix.os }}
@@ -60,9 +65,10 @@ jobs:
             ${{ runner.os }}-${{ matrix.ghc }}-stack
 
       - name: Build
-        run: stack build --system-ghc
+        run: stack build --system-ghc --stack-yaml stack-${{ matrix.ghc }}.yaml
 
       - name: Test
-        run: stack test --system-ghc
+        run: stack test --system-ghc --stack-yaml stack-${{ matrix.ghc }}.yaml
         # Test fails with ld warnings on macos-stack combo
-        continue-on-error: ${{ matrix.os == 'macos-latest' }}
+        # doctest fails with ghc-9.0.2 + stack: https://github.com/sol/doctest/issues/327
+        continue-on-error: ${{ matrix.os == 'macos-latest' || matrix.ghc == '9.0.2' }}
