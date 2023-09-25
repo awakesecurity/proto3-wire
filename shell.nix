@@ -1,4 +1,4 @@
-{ compiler ? "ghc8107" }:
+{ compiler ? "ghc8107", enableStack ? true }:
 
 let
   pkgs = import ./nix/pkgs.nix {
@@ -10,6 +10,5 @@ let
 in proto3-wire.env.overrideAttrs (old: {
   buildInputs = (old.buildInputs or []) ++ [
     pkgs.cabal-install
-    pkgs.stack
-  ];
+  ] ++ (if enableStack then [ pkgs.stack ] else []);
 })
