@@ -15,6 +15,7 @@ jobs:
           - 8107
           - 902
           - 924
+          - 946
     runs-on: ${{ matrix.os }}
 
     steps:

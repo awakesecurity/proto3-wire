@@ -25,6 +25,7 @@
 -- [6,0,0,0,42,206,187]
 
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
 
 module Proto3.Wire.Reverse
     ( -- * `BuildR` type
@@ -85,7 +86,6 @@ module Proto3.Wire.Reverse
 
 import           Data.Bits                     ( (.&.) )
 import qualified Data.ByteString               as B
-import qualified Data.ByteString.Internal      as BI
 import qualified Data.ByteString.Lazy          as BL
 import qualified Data.ByteString.Lazy.Internal as BLI
 import qualified Data.ByteString.Short         as BS
@@ -95,14 +95,20 @@ import           Data.Char                     ( ord )
 import           Data.Int                      ( Int8, Int16, Int32, Int64 )
 import qualified Data.Text                     as T
 import qualified Data.Text.Internal            as TI
-import qualified Data.Text.Internal.Fusion     as TIF
 import qualified Data.Text.Lazy                as TL
 import qualified Data.Text.Short               as TS
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
-import           Foreign                       ( castPtr )
+import           Foreign                       ( castPtr, copyBytes )
 import           Proto3.Wire.Reverse.Internal
 import qualified Proto3.Wire.Reverse.Prim      as Prim
+
+#if MIN_VERSION_text(2,0,0)
+import           Control.Monad.ST.Unsafe       (unsafeSTToIO)
+import qualified Data.Text.Array               as TA
+#else
+import qualified Data.Text.Internal.Fusion     as TIF
+#endif
 
 -- $setup
 -- >>> :set -XOverloadedStrings
@@ -134,7 +140,7 @@ byteString bs = withUnused $ \unused ->
     then
       unsafeConsume len $ \dst ->
         BU.unsafeUseAsCString bs $ \src ->
-          BI.memcpy dst (castPtr src) len
+          copyBytes dst (castPtr src) len
     else
       prependChunk bs
 
@@ -170,7 +176,7 @@ lazyByteString = etaBuildR $ scan (ReverseChunks BL.empty)
           (prepend (ReverseChunks cs) <>) $
             unsafeConsume len $ \dst ->
               BU.unsafeUseAsCString c $ \src ->
-                BI.memcpy dst (castPtr src) len
+                copyBytes dst (castPtr src) len
         else
           prependReverseChunks (ReverseChunks(BLI.Chunk c cs))
 
@@ -508,7 +514,26 @@ stringUtf8 = foldMap charUtf8
 -- >>> textUtf8 "←↑→↓"
 -- Proto3.Wire.Reverse.lazyByteString "\226\134\144\226\134\145\226\134\146\226\134\147"
 textUtf8 :: T.Text -> BuildR
+#if MIN_VERSION_text(2,0,0)
+textUtf8 = etaBuildR $ \(TI.Text arr off word8Count) ->
+  -- For version 2 of the "text" package, the in-memory
+  -- representation is UTF-8.  We can just write it out.
+  withUnused $ \unused ->
+      if word8Count <= unused
+        then
+          writeChunk arr off word8Count
+        else
+          let rest = word8Count - unused in
+          writeChunk arr off rest <>
+            reallocate rest <> writeChunk arr (off + rest) unused
+    where
+      writeChunk src off len =
+        unsafeConsume len $ \dst -> unsafeSTToIO $
+          TA.copyToPointer src off dst len
+#else
 textUtf8 = etaBuildR $ \txt@(TI.Text _ _ word16Count) ->
+  -- For version 1 of the "text" package, the in-memory
+  -- representation is UTF-16.  We must transcode to UTF-8.
   case TIF.reverseStream txt of
     TIF.Stream next t0 _ -> ensure bound (go t0)
       where
@@ -533,6 +558,7 @@ textUtf8 = etaBuildR $ \txt@(TI.Text _ _ word16Count) ->
           TIF.Skip t2 -> go t2
           TIF.Yield !ch t2 ->
             go t2 <> Prim.unsafeBuildBoundedPrim (Prim.charUtf8 ch)
+#endif
 
 -- | Convert a Unicode lazy `TL.Text` to a `BuildR` using a @UTF-8@ encoding
 --
