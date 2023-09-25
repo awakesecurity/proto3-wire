@@ -521,15 +521,15 @@ textUtf8 = etaBuildR $ \(TI.Text arr off word8Count) ->
   withUnused $ \unused ->
       if word8Count <= unused
         then
-          writeChunk arr off 0 word8Count
+          writeChunk arr off word8Count
         else
           let rest = word8Count - unused in
-          writeChunk arr off 0 rest <>
-            reallocate rest <> writeChunk arr off rest unused
+          writeChunk arr off rest <>
+            reallocate rest <> writeChunk arr (off + rest) unused
     where
-      writeChunk src off idx len =
+      writeChunk src off len =
         unsafeConsume len $ \dst -> unsafeSTToIO $
-          TA.copyToPointer src (off + idx) dst len
+          TA.copyToPointer src off dst len
 #else
 textUtf8 = etaBuildR $ \txt@(TI.Text _ _ word16Count) ->
   -- For version 1 of the "text" package, the in-memory
