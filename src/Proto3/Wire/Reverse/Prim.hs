@@ -33,6 +33,8 @@
 {-# LANGUAGE UnboxedTuples #-}
 {-# LANGUAGE UndecidableInstances #-}
 
+{-# OPTIONS_GHC -ddump-simpl -ddump-to-file #-}
+
 module Proto3.Wire.Reverse.Prim
   ( -- * Combine types such as `BoundedPrim` and `FixedPrim`.
     AssocPlusNat(..)
@@ -711,19 +713,26 @@ wordBase128LEVar_inline (W# w) = word64Base128LEVar_inline (W64# w)
 -- | The bounded primitive implementing
 -- `Proto3.Wire.Reverse.word32Base128LEVar`.
 word32Base128LEVar :: Word32 -> BoundedPrim 5
-word32Base128LEVar = word32Base128LEVar_inline
-{-# INLINE word32Base128LEVar #-}
+word32Base128LEVar (W32# x0) = word32Base128LEVar# x0
+{-# INLINABLE word32Base128LEVar #-}
 
--- | Like 'word32Base128LEVar' but inlined, which currently means
--- that it is just the same as 'word32Base128LEVar', which we inline.
-word32Base128LEVar_inline :: Word32 -> BoundedPrim 5
-word32Base128LEVar_inline = \(W32# x0) ->
+-- | Manually-written worker for 'word32Base128LEVar'.
+--
+-- We expect GHC will not inline this worker, but we want to
+-- be sure that the wrapper 'word32Base128LEVar' can be inlined.
+word32Base128LEVar# :: Word# -> BoundedPrim 5
+word32Base128LEVar# x0 =
   ( wordBase128LEVar_choose 1 wordBase128LE_p1 $
     wordBase128LEVar_choose 2 wordBase128LE_p2 $
     wordBase128LEVar_choose 3 wordBase128LE_p3 $
     wordBase128LEVar_choose 4 wordBase128LE_p4 $
     (\x -> liftFixedPrim (wordBase128LE_p5 0## x))
   ) x0
+
+-- | Like 'word32Base128LEVar' but inlined, possibly bloating your code.  On
+-- the other hand, inlining an application to a constant may shrink your code.
+word32Base128LEVar_inline :: Word32 -> BoundedPrim 5
+word32Base128LEVar_inline (W32# x) = inline (word32Base128LEVar# x)
 {-# INLINE word32Base128LEVar_inline #-}
 
 wordBase128LEVar_choose ::
@@ -794,19 +803,23 @@ word28Base128LE = wordBase128LE_p4 0x80##
 -- | The bounded primitive implementing
 -- `Proto3.Wire.Reverse.word64Base128LEVar`.
 word64Base128LEVar :: Word64 -> BoundedPrim 10
-word64Base128LEVar = \(W64# x) ->
+word64Base128LEVar (W64# x) = word64Base128LEVar# x
+{-# INLINABLE word64Base128LEVar #-}
+
+-- | Manually-written worker for 'word64Base128LEVar'.
+--
+-- We expect GHC will not inline this worker, but we want to
+-- be sure that the wrapper 'word64Base128LEVar' can be inlined.
+word64Base128LEVar# :: WORD64 -> BoundedPrim 10
+word64Base128LEVar# x =
     pif (W64# x <= fromIntegral (maxBound :: Word32))
-          (word32Base128LEVar (fromIntegral (W64# x)))
-          (word64Base128LEVar_big x)
-{-# INLINE word64Base128LEVar #-}
+          (inline (word32Base128LEVar (fromIntegral (W64# x))))
+          (inline (word64Base128LEVar_big x))
 
 -- | Like 'word64Base128LEVar' but inlined, possibly bloating your code.  On
 -- the other hand, inlining an application to a constant may shrink your code.
 word64Base128LEVar_inline :: Word64 -> BoundedPrim 10
-word64Base128LEVar_inline = \(W64# x) ->
-    pif (W64# x <= fromIntegral (maxBound :: Word32))
-          (word32Base128LEVar (fromIntegral (W64# x)))
-          (inline (word64Base128LEVar_big x))
+word64Base128LEVar_inline (W64# x) = inline (word64Base128LEVar# x)
 {-# INLINE word64Base128LEVar_inline #-}
 
 -- | The input must be at least 2^32.
@@ -823,7 +836,6 @@ word64Base128LEVar_big x = pif (W64# x <= shiftL 1 60 - 1) p60 p64
     x32 = case fromIntegral (W64# x) of W32# y -> y
 
     shR s = case fromIntegral (shiftR (W64# x) s) of W32# y -> y
-{-# NOINLINE word64Base128LEVar_big #-}
 
 -- | The analog of `Proto3.Wire.Reverse.vectorBuildR` for when fixed-width
 -- primitives encode the elements of the vector.  In this special case we
