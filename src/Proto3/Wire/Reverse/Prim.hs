@@ -711,8 +711,13 @@ wordBase128LEVar_inline (W# w) = word64Base128LEVar_inline (W64# w)
 -- | The bounded primitive implementing
 -- `Proto3.Wire.Reverse.word32Base128LEVar`.
 word32Base128LEVar :: Word32 -> BoundedPrim 5
-word32Base128LEVar = word32Base128LEVar_inline
-{-# INLINE word32Base128LEVar #-}
+word32Base128LEVar (W32# x0) =
+  ( wordBase128LEVar_choose 1 wordBase128LE_p1 $
+    wordBase128LEVar_choose 2 wordBase128LE_p2 $
+    wordBase128LEVar_choose 3 wordBase128LE_p3 $
+    wordBase128LEVar_choose 4 wordBase128LE_p4 $
+    (\x -> liftFixedPrim (wordBase128LE_p5 0## x))
+  ) x0
 
 -- | Like 'word32Base128LEVar' but inlined, which currently means
 -- that it is just the same as 'word32Base128LEVar', which we inline.
@@ -798,14 +803,13 @@ word64Base128LEVar = \(W64# x) ->
     pif (W64# x <= fromIntegral (maxBound :: Word32))
           (word32Base128LEVar (fromIntegral (W64# x)))
           (word64Base128LEVar_big x)
-{-# INLINE word64Base128LEVar #-}
 
 -- | Like 'word64Base128LEVar' but inlined, possibly bloating your code.  On
 -- the other hand, inlining an application to a constant may shrink your code.
 word64Base128LEVar_inline :: Word64 -> BoundedPrim 10
 word64Base128LEVar_inline = \(W64# x) ->
     pif (W64# x <= fromIntegral (maxBound :: Word32))
-          (word32Base128LEVar (fromIntegral (W64# x)))
+          (word32Base128LEVar_inline (fromIntegral (W64# x)))
           (inline (word64Base128LEVar_big x))
 {-# INLINE word64Base128LEVar_inline #-}
 
