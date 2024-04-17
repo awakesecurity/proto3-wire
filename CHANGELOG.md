@@ -1,3 +1,6 @@
+1.4.2
+  - Support GHC 9.4
+
 1.4.1
   - Support ShortByteString and ShortText
 
