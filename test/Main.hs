@@ -34,7 +34,8 @@ import qualified Data.ByteString.Builder.Internal as BBI
 import           Data.Either           ( isLeft )
 import           Data.Maybe            ( fromMaybe )
 import           Data.Int
-import           Data.List             ( group, sort )
+import           Data.List             ( sort )
+import qualified Data.List.NonEmpty    as NE
 import qualified Data.Text.Lazy        as T
 import qualified Data.Text.Short       as TS
 import qualified Data.Vector           as V
@@ -320,7 +321,7 @@ parseWhile p = StateT (Just . BL.span p)
 -- | Run-length encode lazy a 'BL.ByteString'
 -- for concise display in test results.
 rle :: BL.ByteString -> [(Int, Word8)]
-rle = map (length &&& head) . group . BL.unpack
+rle = map (NE.length &&& NE.head) . NE.group . BL.unpack
 
 -- | Please adjust this expected size of the metadata header
 -- to match that expected of the current implementation.

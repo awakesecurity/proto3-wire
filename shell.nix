@@ -1,14 +1,17 @@
-{ compiler ? "ghc8107", enableStack ? true }:
+{ compiler ? "ghc8107", enableStack ? false }:
 
 let
   pkgs = import ./nix/pkgs.nix {
     inherit compiler;
   };
 
-  proto3-wire = pkgs.haskellPackages.proto3-wire;
+in pkgs.haskellPackages.shellFor {
+  packages = hpkgs: [
+    hpkgs.proto3-wire
+  ];
 
-in proto3-wire.env.overrideAttrs (old: {
-  buildInputs = (old.buildInputs or []) ++ [
+  nativeBuildInputs = [
     pkgs.cabal-install
+    pkgs.cabal2nix
   ] ++ (if enableStack then [ pkgs.stack ] else []);
-})
+}

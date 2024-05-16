@@ -1,0 +1,13 @@
+--- a/src/Hackage/Security/Client/Repository/HttpLib/HttpClient.hs	2023-11-02 09:37:03.000000000 -0700
++++ b/src/Hackage/Security/Client/Repository/HttpLib/HttpClient.hs	2024-05-14 12:44:48.812084736 -0700
+@@ -81,8 +81,9 @@
+ -- NOTE: The only other exception defined in @http-client@ is @TimeoutTriggered@
+ -- but it is currently disabled <https://github.com/snoyberg/http-client/issues/116>
+ wrapCustomEx ::
++  Throws SomeRemoteError =>
+      (Throws HTTP.HttpException => IO a)
+-  -> (Throws SomeRemoteError => IO a)
++  -> IO a
+ wrapCustomEx = handleChecked (\(ex :: HTTP.HttpException) -> go ex)
+  where
+   go ex = throwChecked (SomeRemoteError ex)
