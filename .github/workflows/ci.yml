@@ -18,6 +18,9 @@ jobs:
           - 948
           - 962
           - 981
+        exclude:
+          - compiler: ghc902
+            os: macos-latest
     runs-on: ${{ matrix.os }}
 
     steps:
