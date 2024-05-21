@@ -14,8 +14,13 @@ jobs:
         ghc:
           - 8107
           - 902
-          - 924
-          - 946
+          - 928
+          - 948
+          - 962
+          - 981
+        exclude:
+          - os: macos-latest
+            ghc: 902
     runs-on: ${{ matrix.os }}
 
     steps:

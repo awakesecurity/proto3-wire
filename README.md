@@ -25,3 +25,30 @@ To run tests or generate documentation, use
 ```text
 stack build [--test] [--haddock]
 ```
+
+### GHC Versions
+
+#### GHC 9.8
+
+Supported on Linux and Darwin.
+
+#### GHC 9.6
+
+Supported on Linux and Darwin.
+
+#### GHC 9.4
+
+Supported on Linux and Darwin.
+
+#### GHC 9.2
+
+Supported on Linux and Darwin.
+
+#### GHC 9.0
+
+Supported only on Linux because "crypton" fails a test on Darwin,
+probably due to [this issue](https://github.com/kazu-yamamoto/crypton/issues/35).
+
+#### GHC 8.10.7
+
+Supported on Linux and Darwin.
