@@ -89,22 +89,22 @@ module Proto3.Wire.Encode
     , embedded
       -- * Packed repeated fields
     , packedVarints
-    , packedVarintsReverse
+    , packedVarintsR
     , packedVarintsV
     , packedBools
-    , packedBoolsReverse
+    , packedBoolsR
     , packedBoolsV
     , packedFixed32
-    , packedFixed32Reverse
+    , packedFixed32R
     , packedFixed32V
     , packedFixed64
-    , packedFixed64Reverse
+    , packedFixed64R
     , packedFixed64V
     , packedFloats
-    , packedFloatsReverse
+    , packedFloatsR
     , packedFloatsV
     , packedDoubles
-    , packedDoublesReverse
+    , packedDoublesR
     , packedDoublesV
       -- * ZigZag codec
     , zigZagEncode
@@ -535,8 +535,7 @@ shortByteString num = embedded num . MessageBuilder . RB.shortByteString
 {-# INLINE shortByteString #-}
 
 -- | Encode varints in the space-efficient packed format.
--- But consider 'packedVarintsV' or 'packedVarintsReverse',
--- either of which may be faster.
+-- But consider 'packedVarintsV' or 'packedVarintsR', either of which may be faster.
 --
 -- The values to be encoded are specified by mapping the elements of a vector.
 --
@@ -550,13 +549,13 @@ packedVarints num = etaMessageBuilder (embedded num . payload)
 
 -- | In reverse order, encode varints in the space-efficient packed format.
 --
--- >>> packedVarintsReverse 1 [3, 2, 1]
+-- >>> packedVarintsR 1 [3, 2, 1]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
-packedVarintsReverse :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedVarintsReverse num = etaMessageBuilder (embedded num . payload)
+packedVarintsR :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
+packedVarintsR num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldr (flip (<>) . liftBoundedPrim . base128Varint64) mempty
-{-# INLINE packedVarintsReverse #-}
+{-# INLINE packedVarintsR #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -585,15 +584,15 @@ packedBools num = etaMessageBuilder (embedded num . payload)
 
 -- | A faster but more specialized variant of:
 --
--- > packedVarintsReverse num . fmap (fromIntegral . fromEnum)
+-- > packedVarintsR num . fmap (fromIntegral . fromEnum)
 --
--- >>> packedBoolsReverse 1 [False, True]
+-- >>> packedBoolsR 1 [False, True]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
-packedBoolsReverse :: Foldable f => FieldNumber -> f Bool -> MessageBuilder
-packedBoolsReverse num = etaMessageBuilder (embedded num . payload)
+packedBoolsR :: Foldable f => FieldNumber -> f Bool -> MessageBuilder
+packedBoolsR num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldr (flip (<>) . MessageBuilder . RB.word8 . fromIntegral . fromEnum) mempty
-{-# INLINE packedBoolsReverse #-}
+{-# INLINE packedBoolsR #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -609,7 +608,7 @@ packedBoolsV f num = embedded num . MessageBuilder . payload
 {-# INLINE packedBoolsV #-}
 
 -- | Encode fixed-width Word32s in the space-efficient packed format.
--- But consider 'packedFixed32V' or 'packedFixed32Reverse', either of which may be faster.
+-- But consider 'packedFixed32V' or 'packedFixed32R', either of which may be faster.
 --
 -- >>> packedFixed32 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
@@ -621,13 +620,13 @@ packedFixed32 num = etaMessageBuilder (embedded num . payload)
 
 -- | In reverse order, encode fixed-width Word32s in the space-efficient packed format.
 --
--- >>> packedFixed32Reverse 1 [3, 2, 1]
+-- >>> packedFixed32R 1 [3, 2, 1]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
-packedFixed32Reverse :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
-packedFixed32Reverse num = etaMessageBuilder (embedded num . payload)
+packedFixed32R :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
+packedFixed32R num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldr (flip (<>) . MessageBuilder . RB.word32LE) mempty
-{-# INLINE packedFixed32Reverse #-}
+{-# INLINE packedFixed32R #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -643,8 +642,7 @@ packedFixed32V f num = etaMessageBuilder (embedded num . payload)
 {-# INLINE packedFixed32V #-}
 
 -- | Encode fixed-width Word64s in the space-efficient packed format.
--- But consider 'packedFixed64V' or 'packedFixed64Reverse',
--- either of which may be faster.
+-- But consider 'packedFixed64V' or 'packedFixed64R', either of which may be faster.
 --
 -- >>> packedFixed64 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
@@ -656,13 +654,13 @@ packedFixed64 num = etaMessageBuilder (embedded num . payload)
 
 -- | In reverse order, encode fixed-width Word64s in the space-efficient packed format.
 --
--- >>> packedFixed64Reverse 1 [3, 2, 1]
+-- >>> packedFixed64R 1 [3, 2, 1]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
-packedFixed64Reverse :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedFixed64Reverse num = etaMessageBuilder (embedded num . payload)
+packedFixed64R :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
+packedFixed64R num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldr (flip (<>) . MessageBuilder . RB.word64LE) mempty
-{-# INLINE packedFixed64Reverse #-}
+{-# INLINE packedFixed64R #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -678,8 +676,7 @@ packedFixed64V f num = etaMessageBuilder (embedded num . payload)
 {-# INLINE packedFixed64V #-}
 
 -- | Encode floats in the space-efficient packed format.
--- But consider 'packedFloatsV' or 'packedFloatsReverse',
--- either of which may be faster.
+-- But consider 'packedFloatsV' or 'packedFloatsR', either of which may be faster.
 --
 -- >>> 1 `packedFloats` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
@@ -691,13 +688,13 @@ packedFloats num = etaMessageBuilder (embedded num . payload)
 
 -- | In reverse order, encode floats in the space-efficient packed format.
 --
--- >>> 1 `packedFloatsReverse` [3, 2, 1]
+-- >>> 1 `packedFloatsR` [3, 2, 1]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
-packedFloatsReverse :: Foldable f => FieldNumber -> f Float -> MessageBuilder
-packedFloatsReverse num = etaMessageBuilder (embedded num . payload)
+packedFloatsR :: Foldable f => FieldNumber -> f Float -> MessageBuilder
+packedFloatsR num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldr (flip (<>) . MessageBuilder . RB.floatLE) mempty
-{-# INLINE packedFloatsReverse #-}
+{-# INLINE packedFloatsR #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -713,8 +710,7 @@ packedFloatsV f num = etaMessageBuilder (embedded num . payload)
 {-# INLINE packedFloatsV #-}
 
 -- | Encode doubles in the space-efficient packed format.
--- But consider 'packedDoublesV' or 'packedDoublesReverse',
--- either of which may be faster.
+-- But consider 'packedDoublesV' or 'packedDoublesR', either of which may be faster.
 --
 -- >>> 1 `packedDoubles` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
@@ -726,13 +722,13 @@ packedDoubles num = etaMessageBuilder (embedded num . payload)
 
 -- | In reverse order, encode doubles in the space-efficient packed format.
 --
--- >>> 1 `packedDoublesReverse` [3, 2, 1]
+-- >>> 1 `packedDoublesR` [3, 2, 1]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
-packedDoublesReverse :: Foldable f => FieldNumber -> f Double -> MessageBuilder
-packedDoublesReverse num = etaMessageBuilder (embedded num . payload)
+packedDoublesR :: Foldable f => FieldNumber -> f Double -> MessageBuilder
+packedDoublesR num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldr (flip (<>) . MessageBuilder . RB.doubleLE) mempty
-{-# INLINE packedDoublesReverse #-}
+{-# INLINE packedDoublesR #-}
 
 -- | A faster but more specialized variant of:
 --
