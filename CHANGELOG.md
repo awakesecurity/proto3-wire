@@ -1,3 +1,6 @@
+1.4.4:
+  - Add encoders for packed repeated fields that reverse the order of the elements.
+
 1.4.3
   - Support GHC 9.8
   - Support GHC 9.6
