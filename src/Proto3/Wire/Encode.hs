@@ -91,6 +91,8 @@ module Proto3.Wire.Encode
     , packedVarints
     , packedVarintsReverse
     , packedVarintsV
+    , packedBools
+    , packedBoolsReverse
     , packedBoolsV
     , packedFixed32
     , packedFixed32Reverse
@@ -568,6 +570,30 @@ packedVarintsV f num = embedded num . payload
   where
     payload = vectorMessageBuilder (liftBoundedPrim . base128Varint64 . f)
 {-# INLINE packedVarintsV #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > packedVarints num . fmap (fromIntegral . fromEnum)
+--
+-- >>> packedBools 1 [True, False]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
+packedBools :: forall f . Foldable f => FieldNumber -> f Bool -> MessageBuilder
+packedBools num = etaMessageBuilder (embedded num . payload)
+  where
+    payload = foldMap (MessageBuilder . RB.word8 . fromIntegral . fromEnum)
+{-# INLINE packedBools #-}
+
+-- | A faster but more specialized variant of:
+--
+-- > packedVarintsReverse num . fmap (fromIntegral . fromEnum)
+--
+-- >>> packedBoolsReverse 1 [False, True]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
+packedBoolsReverse :: Foldable f => FieldNumber -> f Bool -> MessageBuilder
+packedBoolsReverse num = etaMessageBuilder (embedded num . payload)
+  where
+    payload = foldr (flip (<>) . MessageBuilder . RB.word8 . fromIntegral . fromEnum) mempty
+{-# INLINE packedBoolsReverse #-}
 
 -- | A faster but more specialized variant of:
 --
