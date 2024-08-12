@@ -54,6 +54,7 @@ module Proto3.Wire.Encode
     ( -- * `MessageBuilder` type
       MessageBuilder
     , reverseMessageBuilder
+    , etaMessageBuilder
     , vectorMessageBuilder
     , messageLength
     , toLazyByteString
