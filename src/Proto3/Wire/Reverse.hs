@@ -101,7 +101,7 @@ import qualified Data.Text.Lazy                as TL
 import qualified Data.Text.Short               as TS
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
-import           GHC.Exts                      ( Addr#, Int(..), Int#, lazy )
+import           GHC.Exts                      ( Addr#, Int(..), Int# )
 #if !MIN_VERSION_bytestring(0,11,0)
 import           GHC.Exts                      ( plusAddr# )
 #endif
