@@ -59,6 +59,8 @@ module Proto3.Wire.Encode
     , messageLength
     , toLazyByteString
     , unsafeFromLazyByteString
+    , unsafeFromByteString
+    , unsafeFromShortByteString
 
       -- * Standard Integers
     , int32
@@ -190,14 +192,24 @@ messageLength = fromIntegral . fst . RB.runBuildR . unMessageBuilder
 toLazyByteString :: MessageBuilder -> BL.ByteString
 toLazyByteString = RB.toLazyByteString . unMessageBuilder
 
--- | This lets you cast an arbitrary `ByteString` to a `MessageBuilder`, whether
+-- | This lets you cast an arbitrary 'BL.ByteString' to a `MessageBuilder`, whether
 -- or not the `ByteString` corresponds to a valid serialized protobuf message
 --
 -- Do not use this function unless you know what you're doing because it lets
--- you assemble malformed protobuf `MessageBuilder`s
+-- you assemble malformed protobuf `MessageBuilder`s.
 unsafeFromLazyByteString :: BL.ByteString -> MessageBuilder
 unsafeFromLazyByteString bytes' =
     MessageBuilder { unMessageBuilder = RB.lazyByteString bytes' }
+
+-- | Like 'unsafeFromLazyByteString' only for strict 'B.ByteString's.
+unsafeFromByteString :: B.ByteString -> MessageBuilder
+unsafeFromByteString bytes' =
+    MessageBuilder { unMessageBuilder = RB.byteString bytes' }
+
+-- | Like 'unsafeFromLazyByteString' only for 'BS.ShortByteString's.
+unsafeFromShortByteString :: BS.ShortByteString -> MessageBuilder
+unsafeFromShortByteString bytes' =
+    MessageBuilder { unMessageBuilder = RB.shortByteString bytes' }
 
 newtype MessageBoundedPrim w
   = MessageBoundedPrim { unMessageBoundedPrim :: Prim.BoundedPrim w }
