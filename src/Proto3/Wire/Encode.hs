@@ -82,6 +82,7 @@ module Proto3.Wire.Encode
     , bool
       -- * Strings
     , bytes
+    , bytesIfNonempty
     , string
     , text
     , shortText
@@ -487,11 +488,38 @@ bool = \num b -> liftBoundedPrim $
 
 -- | Encode a sequence of octets as a field of type 'bytes'.
 --
+-- But unless the field is @optional@ or part of a @oneof@,
+-- you may wish to to use 'bytesIfNonempty' to skip the field
+-- when the payload built by the argument turns out to be empty.
+--
+-- >>> 1 `bytes` (Proto3.Wire.Reverse.stringUtf8 "")
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\NUL"
 -- >>> 1 `bytes` (Proto3.Wire.Reverse.stringUtf8 "testing")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 bytes :: FieldNumber -> RB.BuildR -> MessageBuilder
 bytes num = embedded num . MessageBuilder
 {-# INLINE bytes #-}
+
+-- | Like 'bytes' but omits the field if it would be empty, which
+-- is useful when the field is not @optional@ and is not part of
+-- a @oneof@, and therefore may be omitted entirely when empty.
+--
+-- >>> 1 `bytesIfNonempty` (Proto3.Wire.Reverse.stringUtf8 "")
+-- Proto3.Wire.Encode.unsafeFromLazyByteString ""
+-- >>> 1 `bytesIfNonempty` (Proto3.Wire.Reverse.stringUtf8 "testing")
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
+bytesIfNonempty :: FieldNumber -> RB.BuildR -> MessageBuilder
+bytesIfNonempty num bb =
+    MessageBuilder (RB.withLengthOf (prefix num) bb)
+  where
+    prefix num len
+      | 0 < len = Prim.liftBoundedPrim $
+          unMessageBoundedPrim (fieldHeader num LengthDelimited) &<>
+          Prim.wordBase128LEVar (fromIntegral @Int @Word len)
+      | otherwise =
+          mempty
+    {-# INLINE prefix #-}
+{-# INLINE bytesIfNonempty #-}
 
 -- | Encode a UTF-8 string.
 --
@@ -838,13 +866,16 @@ packedDoublesV f num = etaMessageBuilder (embedded num . payload)
 --
 -- For example:
 --
+-- >>> 1 `embedded` mempty
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\NUL"
 -- >>> 1 `embedded` (1 `string` "this message" <> 2 `string` " is embedded")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\FS\n\fthis message\DC2\f is embedded"
 embedded :: FieldNumber -> MessageBuilder -> MessageBuilder
 embedded = \num (MessageBuilder bb) ->
-    MessageBuilder (RB.withLengthOf (Prim.liftBoundedPrim . prefix num) bb)
+    MessageBuilder (RB.withLengthOf (prefix num) bb)
   where
-    prefix num len =
+    prefix num len = Prim.liftBoundedPrim $
       unMessageBoundedPrim (fieldHeader num LengthDelimited) &<>
       Prim.wordBase128LEVar (fromIntegral @Int @Word len)
+    {-# INLINE prefix #-}
 {-# INLINE embedded #-}
