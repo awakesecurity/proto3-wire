@@ -509,10 +509,10 @@ bytes num = embedded num . MessageBuilder
 -- >>> 1 `bytesIfNonempty` (Proto3.Wire.Reverse.stringUtf8 "testing")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 bytesIfNonempty :: FieldNumber -> RB.BuildR -> MessageBuilder
-bytesIfNonempty num bb =
-    MessageBuilder (RB.withLengthOf (prefix num) bb)
+bytesIfNonempty !num bb =
+    MessageBuilder (RB.withLengthOf prefix bb)
   where
-    prefix num len
+    prefix len
       | 0 < len = Prim.liftBoundedPrim $
           unMessageBoundedPrim (fieldHeader num LengthDelimited) &<>
           Prim.wordBase128LEVar (fromIntegral @Int @Word len)
