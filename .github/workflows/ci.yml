@@ -18,6 +18,7 @@ jobs:
           - 948
           - 962
           - 981
+          - 9101
         exclude:
           - os: macos-latest
             ghc: 902
