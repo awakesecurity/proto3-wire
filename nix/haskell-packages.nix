@@ -14,6 +14,11 @@ pkgsNew: pkgsOld:
             adjunctions =
               pkgsNew.haskell.lib.dontCheck haskellPackagesPrev.adjunctions;
 
+            # With nixpkgs-24.11 and our overrides, and when building with GHC 8.10,
+            # aeson thinks that th-abstraction is out of bounds.
+            aeson =
+              pkgsNew.haskell.lib.doJailbreak haskellPackagesPrev.aeson;
+
             # With nixpkgs-23.11 and ghc981, base-compat-batteries wants hspec for testing,
             # which causes problems.
             base-compat-batteries =
