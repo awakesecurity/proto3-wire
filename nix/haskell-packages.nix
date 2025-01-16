@@ -14,13 +14,10 @@ pkgsNew: pkgsOld:
             adjunctions =
               pkgsNew.haskell.lib.dontCheck haskellPackagesPrev.adjunctions;
 
-            # With nixpkgs-23.11 and ghc981, aeson-2.1.2.1 thinks that th-abstraction is out of bounds.
-            # Also, in order to avoid the breaking change to package structure in aeson-2.2.0.0,
-            # we patch the import list of aeson-2.1.2.1.
+            # With nixpkgs-24.11 and our overrides, and when building with GHC 8.10,
+            # aeson thinks that th-abstraction is out of bounds.
             aeson =
-              pkgsNew.haskell.lib.doJailbreak
-                ( pkgsNew.haskell.lib.appendPatches haskellPackagesPrev.aeson
-                    [ ./patches/aeson-2.1.2.1.patch ] );
+              pkgsNew.haskell.lib.doJailbreak haskellPackagesPrev.aeson;
 
             # With nixpkgs-23.11 and ghc981, base-compat-batteries wants hspec for testing,
             # which causes problems.
@@ -101,6 +98,10 @@ pkgsNew: pkgsOld:
             # which causes problems.
             iproute =
               pkgsNew.haskell.lib.dontCheck haskellPackagesPrev.iproute;
+
+            # With nixpkgs-24.11 and our overrides, lens thinks that template-haskell is out of bounds.
+            lens =
+              pkgsNew.haskell.lib.doJailbreak haskellPackagesPrev.lens;
 
             # With nixpkgs-23.11 and ghc981, monad-par wants test-framework for testing, which
             # wants language-haskell-extract, which does not support modern template-haskell.

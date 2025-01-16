@@ -23,6 +23,7 @@
 -- from the untyped 'Map' representation obtained from 'decodeWire'.
 
 {-# LANGUAGE BangPatterns               #-}
+{-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DeriveFunctor              #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
@@ -86,7 +87,9 @@ import           Data.Bits
 import qualified Data.ByteString         as B
 import qualified Data.ByteString.Lazy    as BL
 import qualified Data.ByteString.Short   as BS
+#if !MIN_VERSION_base(4,20,0)
 import           Data.Foldable           ( foldl' )
+#endif
 import qualified Data.IntMap.Strict      as M -- TODO intmap
 import           Data.Maybe              ( fromMaybe )
 import           Data.Serialize.Get      ( Get, getWord8, getInt32le
