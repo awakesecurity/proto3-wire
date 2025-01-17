@@ -28,6 +28,10 @@ stack build [--test] [--haddock]
 
 ### GHC Versions
 
+#### GHC 9.10
+
+Supported on Linux and Darwin.
+
 #### GHC 9.8
 
 Supported on Linux and Darwin.

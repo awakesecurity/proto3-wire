@@ -1,4 +1,5 @@
-1.4.4:
+1.4.4
+  - Support GHC 9.10
   - Add encoders for packed repeated fields that reverse
     the order of the elements and/or apply a function to each
     element of a Foldable container to produce the desired value.

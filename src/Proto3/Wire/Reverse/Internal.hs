@@ -462,7 +462,7 @@ sealBuffer# addr unused s0 =
       -- until a state action frees the stable pointer or modifies the state
       -- variable, the stable pointer will reference the state variable,
       -- which in turn will reference the current buffer.
-      let allocation = P.sizeofMutableByteArray buffer - metaDataSize
+      allocation <- subtract metaDataSize <$> P.getSizeofMutableByteArray buffer
       if allocation <= I# unused
         then
           pure (oldSealed, total, stateVar, statePtr, Just buffer)
@@ -573,8 +573,8 @@ afterPrependChunks# SealedState
       Just buf -> do
         -- Recycle the old current buffer, from which
         -- we already copied what we wished to keep.
-        let u1 = P.sizeofMutableByteArray buf - metaDataSize
-            !(PTR base) = P.mutableByteArrayContents buf
+        u1 <- subtract metaDataSize <$> P.getSizeofMutableByteArray buf
+        let !(PTR base) = P.mutableByteArrayContents buf
             !v1 = plusPtr (Ptr base) (metaDataSize + u1)
             !m = plusPtr (Ptr base) metaDataSize
         writeSpace m (u1 + total)
