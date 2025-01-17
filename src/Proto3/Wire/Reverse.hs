@@ -26,6 +26,7 @@
 
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE MagicHash #-}
 
 module Proto3.Wire.Reverse
     ( -- * `BuildR` type
@@ -86,6 +87,7 @@ module Proto3.Wire.Reverse
 
 import           Data.Bits                     ( (.&.) )
 import qualified Data.ByteString               as B
+import qualified Data.ByteString.Internal      as BI
 import qualified Data.ByteString.Lazy          as BL
 import qualified Data.ByteString.Lazy.Internal as BLI
 import qualified Data.ByteString.Short         as BS
@@ -99,6 +101,11 @@ import qualified Data.Text.Lazy                as TL
 import qualified Data.Text.Short               as TS
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
+import           GHC.Exts                      ( Addr#, Int(..), Int# )
+#if !MIN_VERSION_bytestring(0,11,0)
+import           GHC.Exts                      ( plusAddr# )
+#endif
+import           GHC.ForeignPtr                ( ForeignPtr(..), ForeignPtrContents )
 import           Foreign                       ( castPtr, copyBytes )
 import           Proto3.Wire.Reverse.Internal
 import qualified Proto3.Wire.Reverse.Prim      as Prim
@@ -134,15 +141,32 @@ toLazyByteString = snd . runBuildR
 -- >>> byteString "ABC"
 -- Proto3.Wire.Reverse.lazyByteString "ABC"
 byteString :: B.ByteString -> BuildR
-byteString bs = withUnused $ \unused ->
-  let len = B.length bs in
-  if len <= unused
-    then
-      unsafeConsume len $ \dst ->
-        BU.unsafeUseAsCString bs $ \src ->
-          copyBytes dst (castPtr src) len
-    else
-      prependChunk bs
+#if MIN_VERSION_bytestring(0,11,0)
+byteString (BI.BS (ForeignPtr ad ct) (I# len)) = byteStringImpl ad ct len
+#else
+byteString (BI.PS (ForeignPtr ad ct) (I# off) (I# len)) = byteStringImpl (plusAddr# ad off) ct len
+#endif
+{-# INLINE byteString #-}
+
+byteStringImpl :: Addr# -> ForeignPtrContents -> Int# -> BuildR
+byteStringImpl ad ct len =
+#if MIN_VERSION_bytestring(0,11,0)
+  let bs = BI.BS (ForeignPtr ad ct) (I# len) in
+#else
+  let bs = BI.PS (ForeignPtr ad ct) 0 (I# len) in
+#endif
+  withUnused $ \unused ->
+    if I# len <= unused
+      then
+        unsafeConsume (I# len) $ \dst ->
+          BU.unsafeUseAsCString bs $ \src ->
+            copyBytes dst (castPtr src) (I# len)
+      else
+        prependChunk bs
+{-# NOINLINE [1] byteStringImpl #-}
+{-# RULES
+    "byteStringImpl/empty" forall ad ct . byteStringImpl ad ct 0# = mempty
+  #-}
 
 -- | Convert a lazy `BL.ByteString` to a `BuildR`
 --
@@ -179,6 +203,10 @@ lazyByteString = etaBuildR $ scan (ReverseChunks BL.empty)
                 copyBytes dst (castPtr src) len
         else
           prependReverseChunks (ReverseChunks(BLI.Chunk c cs))
+{-# NOINLINE [1] lazyByteString #-}
+{-# RULES
+    "lazyByteString/empty" lazyByteString BLI.Empty = mempty
+  #-}
 
 -- | Convert a `BS.ShortByteString` to a `BuildR`
 --

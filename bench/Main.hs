@@ -15,7 +15,6 @@ import Proto3.Wire
 
 import Control.Applicative (liftA2, liftA3)
 import Control.Monad (forM)
-import Data.Maybe
 import Data.Word
 import Data.IORef
 
@@ -39,7 +38,7 @@ instance Foldable Tree where
     in a + a1 + a2
 
 instance Foldable Rose where
-  foldMap f Bud = mempty
+  foldMap _ Bud = mempty
   foldMap f (Rose x rs) = f x <> ((foldMap.foldMap) f rs)
 
 intTreeParser :: De.Parser De.RawMessage (Tree Word64)
@@ -123,9 +122,9 @@ pullInt :: IORef [Word64] -> IO Word64
 pullInt xs = do
   xs' <- readIORef xs
   case xs' of
-    [] -> pure (-1)
-    x : xs' -> do
-      writeIORef xs xs'
+    [] -> pure (negate 1)
+    x : xs'' -> do
+      writeIORef xs xs''
       pure x
 
 mkTree0 :: IO Word64 -> IO En.MessageBuilder
