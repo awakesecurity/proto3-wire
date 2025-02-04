@@ -99,6 +99,7 @@ module Proto3.Wire.Reverse.Prim
   , word64Base128LEVar
   , word64Base128LEVar_inline
   , vectorFixedPrim
+  , unsafeReverseFoldMapFixedPrim
   ) where
 
 import           Data.Bits                     ( Bits(..) )
@@ -844,3 +845,30 @@ vectorFixedPrim f = etaBuildR $ \v ->
   where
     w = fromInteger (natVal' (proxy# :: Proxy# w))
 {-# INLINE vectorFixedPrim #-}
+
+-- | Generalizes 'vectorFixedPrim' by mapping the elements
+-- of a sequence of known length to fixed-width primitives
+-- and concatenating those primitives /in reverse order/.
+--
+-- This action is unsafe because a length prediction that is too short
+-- causes undefined behavior--possibly a crash.  By contrast, a length
+-- prediction that is too long merely overallocates output space.
+--
+-- (To see how this function could be used to implement 'vectorFixedPrim',
+-- note that we can iterate over a vector from right to left by reversing
+-- the vector and then performing a right fold on the reversed vector;
+-- vector fusion rules should eliminate the intermediate vector.)
+unsafeReverseFoldMapFixedPrim ::
+  forall w t a .
+  (KnownNat w, Foldable t) =>
+  (a -> FixedPrim w) ->
+  -- | Maximum number of elements (overapproximation causes overallocation;
+  -- passing an undercount may cause a crash).
+  Int ->
+  t a ->
+  BuildR
+unsafeReverseFoldMapFixedPrim f !n = etaBuildR $ \xs ->
+    ensure (w * n) (foldr (\x acc -> acc <> unsafeBuildBoundedPrim (liftFixedPrim (f x))) mempty xs)
+  where
+    w = fromInteger (natVal' (proxy# :: Proxy# w))
+{-# INLINE unsafeReverseFoldMapFixedPrim #-}

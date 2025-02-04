@@ -1,4 +1,4 @@
-{ compiler ? "ghc948", enableStack ? false }:
+{ compiler ? "ghc982", enableStack ? false }:
 
 let
   pkgs = import ./nix/pkgs.nix {
