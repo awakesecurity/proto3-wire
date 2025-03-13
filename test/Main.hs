@@ -801,20 +801,22 @@ packedDoublesV_large = HU.testCase "Large packedDoublesV" $ do
                              (BL.toStrict encoded)
   HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
 
+data ExpectedCountPrediction c = NoCP | CorrectCP | SameCP (c -> Maybe Int)
+
 toRepeatedTests :: TestTree
 toRepeatedTests = testGroup "ToRepeated"
-  [ test_ToRepeated genRepeated (reverse . toList . reverseRepeated)
-  , test_ToRepeated QC.arbitrary (toList @Identity @Word8)
-  , test_ToRepeated QC.arbitrary (id @[Word8])
-  , test_ToRepeated ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
-  , test_ToRepeated (fmap V.fromList QC.arbitrary) (V.toList @Word8)
-  , test_ToRepeated (fmap VS.fromList QC.arbitrary) (VS.toList @Word8)
-  , test_ToRepeated (fmap VU.fromList QC.arbitrary) (VU.toList @Word8)
-  , test_ToRepeated QC.arbitrary (toList @Data.Sequence.Seq @Word8)
-  , test_ToRepeated QC.arbitrary (Data.Set.toAscList @Word8)
-  , test_ToRepeated QC.arbitrary Data.IntSet.toAscList
-  , test_ToRepeated QC.arbitrary (Data.Map.Lazy.toAscList @Int8 @Word8)
-  , test_ToRepeated QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
+  [ test_ToRepeated (SameCP countRepeated) genRepeated (reverse . toList . reverseRepeated)
+  , test_ToRepeated CorrectCP QC.arbitrary (toList @Identity @Word8)
+  , test_ToRepeated NoCP QC.arbitrary (id @[Word8])
+  , test_ToRepeated NoCP ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
+  , test_ToRepeated CorrectCP (fmap V.fromList QC.arbitrary) (V.toList @Word8)
+  , test_ToRepeated CorrectCP (fmap VS.fromList QC.arbitrary) (VS.toList @Word8)
+  , test_ToRepeated CorrectCP (fmap VU.fromList QC.arbitrary) (VU.toList @Word8)
+  , test_ToRepeated CorrectCP QC.arbitrary (toList @Data.Sequence.Seq @Word8)
+  , test_ToRepeated CorrectCP QC.arbitrary (Data.Set.toAscList @Word8)
+  , test_ToRepeated NoCP QC.arbitrary Data.IntSet.toAscList
+  , test_ToRepeated CorrectCP QC.arbitrary (Data.Map.Lazy.toAscList @Int8 @Word8)
+  , test_ToRepeated NoCP QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
   ]
   where
     genRepeated :: QC.Gen (Repeated Word8)
@@ -834,10 +836,11 @@ toRepeatedTests = testGroup "ToRepeated"
       , Eq e
       , Show e
       ) =>
+      ExpectedCountPrediction c ->
       (QC.Gen c) ->
       (c -> [e]) ->
       TestTree
-    test_ToRepeated gen cToList =
+    test_ToRepeated expectedCP gen cToList =
       let cRep = typeRep (Proxy :: Proxy c) in
       QC.testProperty (showString "toRepeated @(" $ showsTypeRep cRep ")") $
         QC.forAll gen $ \(c :: c) ->
@@ -850,6 +853,13 @@ toRepeatedTests = testGroup "ToRepeated"
           in
             QC.counterexample "correctly reversed elements" (toList reversed === reverse es)
             QC..&&.
-            case prediction of
-              Nothing -> QC.property True
-              Just count -> QC.counterexample "correct prediction" (count === length es)
+            case expectedCP of
+              NoCP ->
+                QC.counterexample "no count prediction" (prediction === Nothing)
+              CorrectCP ->
+                QC.counterexample "correct count prediction" (prediction === Just (length es))
+              SameCP expected ->
+                QC.counterexample "unchanged count prediction" (prediction === expected c)
+                QC..&&.
+                QC.counterexample "as self-test of random input: correct count prediction if any"
+                  (all @Maybe (== length es) prediction)
