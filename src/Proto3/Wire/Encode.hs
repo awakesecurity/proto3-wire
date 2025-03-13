@@ -138,7 +138,7 @@ import           Proto3.Wire.Class
 import           Proto3.Wire.Types
 
 -- $setup
--- >>> :set -XOverloadedStrings -XOverloadedLists
+-- >>> :set -XOverloadedStrings -XOverloadedLists -XTypeApplications
 -- >>> :module Proto3.Wire.Encode Proto3.Wire.Class Data.Word
 
 -- | zigzag-encoded numeric type.
