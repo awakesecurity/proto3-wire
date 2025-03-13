@@ -862,8 +862,8 @@ unsafeReverseFoldMapFixedPrim ::
   forall w t a .
   (KnownNat w, Foldable t) =>
   (a -> FixedPrim w) ->
-  -- | Maximum number of elements (overapproximation causes overallocation;
-  -- passing an undercount may cause a crash).
+  -- | Maximum number of elements.  Overapproximation causes
+  -- overallocation; passing an undercount may cause a crash.
   Int ->
   t a ->
   BuildR

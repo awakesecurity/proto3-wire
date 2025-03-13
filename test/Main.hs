@@ -14,9 +14,11 @@
   limitations under the License.
 -}
 
-{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
 {-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 
@@ -32,20 +34,34 @@ import qualified Data.ByteString.Lazy  as BL
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Builder.Internal as BBI
 import           Data.Either           ( isLeft )
-import           Data.Maybe            ( fromMaybe )
+import           Data.Foldable         ( toList )
+import           Data.Functor.Identity ( Identity )
 import           Data.Int
+import qualified Data.IntMap.Lazy
+import qualified Data.IntSet
+import qualified Data.Map.Lazy
+import           Data.Maybe            ( fromMaybe )
 import           Data.List             ( sort )
 import qualified Data.List.NonEmpty    as NE
+import           Data.Proxy            ( Proxy(..) )
+import qualified Data.Sequence
+import qualified Data.Set
 import qualified Data.Text.Lazy        as T
 import qualified Data.Text.Short       as TS
+import           Data.Typeable         ( Typeable, showsTypeRep, typeRep )
 import qualified Data.Vector           as V
+import qualified Data.Vector.Storable  as VS
+import qualified Data.Vector.Unboxed   as VU
 import           Data.Word             ( Word8, Word64 )
 import           Foreign               ( sizeOf )
+import qualified GHC.Exts
 
 import           Proto3.Wire
+import           Proto3.Wire.FoldR     ( FoldR )
 import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Reverse   as Reverse
 import qualified Proto3.Wire.Encode    as Encode
+import           Proto3.Wire.Encode.Repeated ( Repeated(..), ToRepeated(..) )
 import qualified Proto3.Wire.Decode    as Decode
 
 import qualified Test.DocTest
@@ -77,6 +93,7 @@ tests = testGroup "Tests" [ roundTripTests
                           , varIntHeavyTests
                           , packedLargeTests
                           , decodeWireRoundTrip
+                          , toRepeatedTests
                           ]
 
 data StringOrInt64 = TString T.Text | TInt64 Int64
@@ -783,3 +800,56 @@ packedDoublesV_large = HU.testCase "Large packedDoublesV" $ do
       decoded = Decode.parse (one Decode.packedDoubles [] `at` fieldNumber 13)
                              (BL.toStrict encoded)
   HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
+
+toRepeatedTests :: TestTree
+toRepeatedTests = testGroup "ToRepeated"
+  [ test_ToRepeated genRepeated (reverse . toList . reverseRepeated)
+  , test_ToRepeated QC.arbitrary (toList @Identity @Word8)
+  , test_ToRepeated QC.arbitrary (id @[Word8])
+  , test_ToRepeated ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
+  , test_ToRepeated (fmap V.fromList QC.arbitrary) (V.toList @Word8)
+  , test_ToRepeated (fmap VS.fromList QC.arbitrary) (VS.toList @Word8)
+  , test_ToRepeated (fmap VU.fromList QC.arbitrary) (VU.toList @Word8)
+  , test_ToRepeated QC.arbitrary (toList @Data.Sequence.Seq @Word8)
+  , test_ToRepeated QC.arbitrary (Data.Set.toAscList @Word8)
+  , test_ToRepeated QC.arbitrary Data.IntSet.toAscList
+  , test_ToRepeated QC.arbitrary (Data.Map.Lazy.toAscList @Int8 @Word8)
+  , test_ToRepeated QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
+  ]
+  where
+    genRepeated :: QC.Gen (Repeated Word8)
+    genRepeated = do
+      predict <- QC.arbitrary
+      xs <- QC.arbitrary
+      pure ReverseRepeated
+        { countRepeated = if predict then Just (length xs) else Nothing
+        , reverseRepeated = GHC.Exts.fromList xs
+        }
+
+    test_ToRepeated ::
+      forall c e .
+      ( ToRepeated c e
+      , Show c
+      , Typeable c
+      , Eq e
+      , Show e
+      ) =>
+      (QC.Gen c) ->
+      (c -> [e]) ->
+      TestTree
+    test_ToRepeated gen cToList =
+      let cRep = typeRep (Proxy :: Proxy c) in
+      QC.testProperty (showString "toRepeated @(" $ showsTypeRep cRep ")") $
+        QC.forAll gen $ \(c :: c) ->
+          let es :: [e]
+              es = cToList c
+
+              prediction :: Maybe Int
+              reversed :: FoldR e
+              ReverseRepeated prediction reversed = toRepeated c
+          in
+            QC.counterexample "correctly reversed elements" (toList reversed === reverse es)
+            QC..&&.
+            case prediction of
+              Nothing -> QC.property True
+              Just count -> QC.counterexample "correct prediction" (count === length es)

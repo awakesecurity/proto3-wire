@@ -40,6 +40,9 @@
 
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DerivingStrategies #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
@@ -93,32 +96,21 @@ module Proto3.Wire.Encode
     , embedded
       -- * Packed repeated fields
     , packedVarints
-    , packedVarintsF
     , packedVarintsR
     , packedVarintsV
-    , packedBoolsF
     , packedBoolsR
-    , unsafePackedBoolsRN
     , packedBoolsV
     , packedFixed32
-    , packedFixed32F
     , packedFixed32R
-    , unsafePackedFixed32RN
     , packedFixed32V
     , packedFixed64
-    , packedFixed64F
     , packedFixed64R
-    , unsafePackedFixed64RN
     , packedFixed64V
     , packedFloats
-    , packedFloatsF
     , packedFloatsR
-    , unsafePackedFloatsRN
     , packedFloatsV
     , packedDoubles
-    , packedDoublesF
     , packedDoublesR
-    , unsafePackedDoublesRN
     , packedDoublesV
       -- * ZigZag codec
     , zigZagEncode
@@ -139,6 +131,7 @@ import           GHC.TypeLits                  ( KnownNat, Nat, type (+) )
 import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
                                                  (&<>) )
 import           Parameterized.Data.Monoid     ( PMEmpty(..) )
+import           Proto3.Wire.Encode.Repeated   ( Repeated(..), ToRepeated(..) )
 import qualified Proto3.Wire.Reverse           as RB
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 import           Proto3.Wire.Class
@@ -163,7 +156,7 @@ zigZagEncode i = (i `shiftL` 1) `xor` (i `shiftR` n)
 --
 -- Use `toLazyByteString` when you're done assembling the `MessageBuilder`
 newtype MessageBuilder = MessageBuilder { unMessageBuilder :: RB.BuildR }
-  deriving (Monoid, Semigroup)
+  deriving newtype (Monoid, Semigroup)
 
 instance Show MessageBuilder where
   showsPrec prec builder =
@@ -591,39 +584,28 @@ shortByteString num = embedded num . MessageBuilder . RB.shortByteString
 -- >>> packedVarints 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
 packedVarints :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedVarints = packedVarintsF id
+packedVarints num = etaMessageBuilder (embedded num . payload)
+  where
+    payload = foldMap (liftBoundedPrim . base128Varint64)
 {-# INLINE packedVarints #-}
 
--- | Encode varints in the space-efficient packed format.
--- But consider 'packedVarintsV' or 'packedVarintsR', either of which may be faster.
+-- | A faster but more specialized variant of 'packedVarints'.
 --
--- The values to be encoded are specified by mapping foldable elements.
+-- Generalizes 'packedVarintsV', provided that any new instance
+-- of 'Vector' is given a corresponding instance of 'ToRepeated'.
 --
--- Note that 'packedVarints'@ = @'packedVarintsF' 'id', but
--- implementing 'packedVarintsF' in terms of 'packedVarints'
--- would require 'Functor' (in addition to 'Foldable').
---
--- >>> packedVarintsF (subtract 10) 1 [11, 12, 13]
+-- >>> packedVarintsR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
-packedVarintsF :: Foldable f => (a -> Word64) -> FieldNumber -> f a -> MessageBuilder
-packedVarintsF f num = etaMessageBuilder (embedded num . payload)
+packedVarintsR :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
+packedVarintsR num = etaMessageBuilder (embedded num . payload)
   where
-    payload = foldMap (liftBoundedPrim . base128Varint64 . f)
-{-# INLINE packedVarintsF #-}
-
--- | In reverse order, encode varints in the space-efficient packed format.
---
--- The values to be encoded are specified by mapping foldable elements.
---
--- >>> packedVarintsR (subtract 10) 1 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
-packedVarintsR :: Foldable f => (a -> Word64) -> FieldNumber -> f a -> MessageBuilder
-packedVarintsR f num = etaMessageBuilder (embedded num . payload)
-  where
-    payload = foldr (flip (<>) . liftBoundedPrim . base128Varint64 . f) mempty
+    payload = foldr (flip (<>) . liftBoundedPrim . base128Varint64) mempty .
+              reverseRepeated . toRepeated
 {-# INLINE packedVarintsR #-}
 
--- | A faster but more specialized variant of 'packedVarintsF'.
+-- | A faster but more specialized variant of:
+--
+-- > \f num -> packedVarints num . fmap f
 --
 -- >>> packedVarintsV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word64)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
@@ -636,46 +618,22 @@ packedVarintsV f num = embedded num . payload
 
 -- | A faster but more specialized variant of:
 --
--- The values to be encoded are specified by mapping foldable elements.
---
--- > \f -> packedVarintsF (fromIntegral . fromEnum . f)
---
--- >>> packedBoolsF not 1 [False, True]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
-packedBoolsF :: Foldable f => (a -> Bool) -> FieldNumber -> f a -> MessageBuilder
-packedBoolsF f num = etaMessageBuilder (embedded num . payload)
-  where
-    payload = foldMap (MessageBuilder . RB.word8 . fromIntegral . fromEnum . f)
-{-# INLINE packedBoolsF #-}
-
--- | A faster but more specialized variant of:
---
--- The values to be encoded are specified by mapping foldable elements.
---
 -- > \f -> packedVarintsR (fromIntegral . fromEnum . f)
 --
--- >>> packedBoolsR not 1 [True, False]
+-- Generalizes 'packedBoolsV', provided that any new instance
+-- of 'Vector' is given a corresponding instance of 'ToRepeated'.
+--
+-- >>> packedBoolsR @[_] 1 [True, False]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
-packedBoolsR :: Foldable f => (a -> Bool) -> FieldNumber -> f a -> MessageBuilder
-packedBoolsR f num = etaMessageBuilder (embedded num . payload)
+packedBoolsR :: ToRepeated c Bool => FieldNumber -> c -> MessageBuilder
+packedBoolsR num = etaMessageBuilder (embedded num . payload)
   where
-    payload = foldr (flip (<>) . MessageBuilder . RB.word8 . fromIntegral . fromEnum . f) mempty
+    payload c = MessageBuilder $ case toRepeated c of
+      ReverseRepeated Nothing xs ->
+        foldr (flip (<>) . RB.word8 . fromIntegral . fromEnum) mempty xs
+      ReverseRepeated (Just count) xs ->
+        Prim.unsafeReverseFoldMapFixedPrim (Prim.word8 . fromIntegral . fromEnum) count xs
 {-# INLINE packedBoolsR #-}
-
--- | Like 'packedBoolsR' but with a prediction of the number of elements.
---
--- This action is unsafe because a length prediction that is too short
--- causes undefined behavior--possibly a crash.  By contrast, a length
--- prediction that is too long merely overallocates output space.
---
--- >>> unsafePackedBoolsRN not 1 2 [True, False]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
-unsafePackedBoolsRN :: Foldable f => (a -> Bool) -> FieldNumber -> Int -> f a -> MessageBuilder
-unsafePackedBoolsRN f num !count = etaMessageBuilder (embedded num . payload)
-  where
-    payload = MessageBuilder . Prim.unsafeReverseFoldMapFixedPrim op count
-    op = Prim.word8 . fromIntegral . fromEnum . f
-{-# INLINE unsafePackedBoolsRN #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -696,49 +654,31 @@ packedBoolsV f num = embedded num . MessageBuilder . payload
 -- >>> packedFixed32 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
 packedFixed32 :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
-packedFixed32 = packedFixed32F id
+packedFixed32 num = etaMessageBuilder (embedded num . payload)
+  where
+    payload = foldMap (MessageBuilder . RB.word32LE)
 {-# INLINE packedFixed32 #-}
 
--- | Encode fixed-width Word32s in the space-efficient packed format.
--- But consider 'packedFixed32V' or 'packedFixed32R', either of which may be faster.
+-- | A faster but more specialized variant of 'packedFixed32'.
 --
--- The values to be encoded are specified by mapping foldable elements.
+-- Generalizes 'packedFixed32V', provided that any new instance
+-- of 'Vector' is given a corresponding instance of 'ToRepeated'.
 --
--- >>> packedFixed32F (subtract 10) 1 [11, 12, 13]
+-- >>> packedFixed32R @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
-packedFixed32F :: Foldable f => (a -> Word32) -> FieldNumber -> f a -> MessageBuilder
-packedFixed32F f num = etaMessageBuilder (embedded num . payload)
+packedFixed32R :: ToRepeated c Word32 => FieldNumber -> c -> MessageBuilder
+packedFixed32R num = etaMessageBuilder (embedded num . payload)
   where
-    payload = foldMap (MessageBuilder . RB.word32LE . f)
-{-# INLINE packedFixed32F #-}
-
--- | In reverse order, encode fixed-width Word32s in the space-efficient packed format.
---
--- The values to be encoded are specified by mapping foldable elements.
---
--- >>> packedFixed32R (subtract 10) 1 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
-packedFixed32R :: Foldable f => (a -> Word32) -> FieldNumber -> f a -> MessageBuilder
-packedFixed32R f num = etaMessageBuilder (embedded num . payload)
-  where
-    payload = foldr (flip (<>) . MessageBuilder . RB.word32LE . f) mempty
+    payload c = MessageBuilder $ case toRepeated c of
+      ReverseRepeated Nothing xs ->
+        foldr (flip (<>) . RB.word32LE) mempty xs
+      ReverseRepeated (Just count) xs ->
+        Prim.unsafeReverseFoldMapFixedPrim Prim.word32LE count xs
 {-# INLINE packedFixed32R #-}
 
--- | Like 'packedFixed32R' but with a prediction of the number of elements.
+-- | A faster but more specialized variant of:
 --
--- This action is unsafe because a length prediction that is too short
--- causes undefined behavior--possibly a crash.  By contrast, a length
--- prediction that is too long merely overallocates output space.
---
--- >>> unsafePackedFixed32RN (subtract 10) 1 3 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
-unsafePackedFixed32RN :: Foldable f => (a -> Word32) -> FieldNumber -> Int -> f a -> MessageBuilder
-unsafePackedFixed32RN f num !count = etaMessageBuilder (embedded num . payload)
-  where
-    payload = MessageBuilder . Prim.unsafeReverseFoldMapFixedPrim (Prim.word32LE . f) count
-{-# INLINE unsafePackedFixed32RN #-}
-
--- | A faster but more specialized variant of 'packedFixed32F'.
+-- > \f num -> packedFixed32 num . fmap f
 --
 -- >>> packedFixed32V (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word32)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
@@ -755,49 +695,31 @@ packedFixed32V f num = etaMessageBuilder (embedded num . payload)
 -- >>> packedFixed64 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 packedFixed64 :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedFixed64 = packedFixed64F id
+packedFixed64 num = etaMessageBuilder (embedded num . payload)
+  where
+    payload = foldMap (MessageBuilder . RB.word64LE)
 {-# INLINE packedFixed64 #-}
 
--- | Encode fixed-width Word64s in the space-efficient packed format.
--- But consider 'packedFixed64V' or 'packedFixed64R', either of which may be faster.
+-- | A faster but more specialized variant of 'packedFixed64'.
 --
--- The values to be encoded are specified by mapping foldable elements.
+-- Generalizes 'packedFixed64V', provided that any new instance
+-- of 'Vector' is given a corresponding instance of 'ToRepeated'.
 --
--- >>> packedFixed64F (subtract 10) 1 [11, 12, 13]
+-- >>> packedFixed64R @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
-packedFixed64F :: Foldable f => (a -> Word64) -> FieldNumber -> f a -> MessageBuilder
-packedFixed64F f num = etaMessageBuilder (embedded num . payload)
+packedFixed64R :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
+packedFixed64R num = etaMessageBuilder (embedded num . payload)
   where
-    payload = foldMap (MessageBuilder . RB.word64LE . f)
-{-# INLINE packedFixed64F #-}
-
--- | In reverse order, encode fixed-width Word64s in the space-efficient packed format.
---
--- The values to be encoded are specified by mapping foldable elements.
---
--- >>> packedFixed64R (subtract 10) 1 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
-packedFixed64R :: Foldable f => (a -> Word64) -> FieldNumber -> f a -> MessageBuilder
-packedFixed64R f num = etaMessageBuilder (embedded num . payload)
-  where
-    payload = foldr (flip (<>) . MessageBuilder . RB.word64LE . f) mempty
+    payload c = MessageBuilder $ case toRepeated c of
+      ReverseRepeated Nothing xs ->
+        foldr (flip (<>) . RB.word64LE) mempty xs
+      ReverseRepeated (Just count) xs ->
+        Prim.unsafeReverseFoldMapFixedPrim Prim.word64LE count xs
 {-# INLINE packedFixed64R #-}
 
--- | Like 'packedFixed64R' but with a prediction of the number of elements.
+-- | A faster but more specialized variant of:
 --
--- This action is unsafe because a length prediction that is too short
--- causes undefined behavior--possibly a crash.  By contrast, a length
--- prediction that is too long merely overallocates output space.
---
--- >>> unsafePackedFixed64RN (subtract 10) 1 3 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
-unsafePackedFixed64RN :: Foldable f => (a -> Word64) -> FieldNumber -> Int -> f a -> MessageBuilder
-unsafePackedFixed64RN f num !count = etaMessageBuilder (embedded num . payload)
-  where
-    payload = MessageBuilder . Prim.unsafeReverseFoldMapFixedPrim (Prim.word64LE . f) count
-{-# INLINE unsafePackedFixed64RN #-}
-
--- | A faster but more specialized variant of 'packedFixed64F'.
+-- > \f num -> packedFixed64 num . fmap f
 --
 -- >>> packedFixed64V (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Word64)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
@@ -814,49 +736,31 @@ packedFixed64V f num = etaMessageBuilder (embedded num . payload)
 -- >>> 1 `packedFloats` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
 packedFloats :: Foldable f => FieldNumber -> f Float -> MessageBuilder
-packedFloats = packedFloatsF id
+packedFloats num = etaMessageBuilder (embedded num . payload)
+  where
+    payload = foldMap (MessageBuilder . RB.floatLE)
 {-# INLINE packedFloats #-}
 
--- | Encode floats in the space-efficient packed format.
--- But consider 'packedFloatsV' or 'packedFloatsR', either of which may be faster.
+-- | A faster but more specialized variant of 'packedFloats'.
 --
--- The values to be encoded are specified by mapping foldable elements.
+-- Generalizes 'packedFloatsV', provided that any new instance
+-- of 'Vector' is given a corresponding instance of 'ToRepeated'.
 --
--- >>> packedFloatsF (subtract 10) 1 [11, 12, 13]
+-- >>> packedFloatsR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
-packedFloatsF :: Foldable f => (a -> Float) -> FieldNumber -> f a -> MessageBuilder
-packedFloatsF f num = etaMessageBuilder (embedded num . payload)
+packedFloatsR :: ToRepeated c Float => FieldNumber -> c -> MessageBuilder
+packedFloatsR num = etaMessageBuilder (embedded num . payload)
   where
-    payload = foldMap (MessageBuilder . RB.floatLE . f)
-{-# INLINE packedFloatsF #-}
-
--- | In reverse order, encode floats in the space-efficient packed format.
---
--- The values to be encoded are specified by mapping foldable elements.
---
--- >>> packedFloatsR (subtract 10) 1 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
-packedFloatsR :: Foldable f => (a -> Float) -> FieldNumber -> f a -> MessageBuilder
-packedFloatsR f num = etaMessageBuilder (embedded num . payload)
-  where
-    payload = foldr (flip (<>) . MessageBuilder . RB.floatLE . f) mempty
+    payload c = MessageBuilder $ case toRepeated c of
+      ReverseRepeated Nothing xs ->
+        foldr (flip (<>) . RB.floatLE) mempty xs
+      ReverseRepeated (Just count) xs ->
+        Prim.unsafeReverseFoldMapFixedPrim Prim.floatLE count xs
 {-# INLINE packedFloatsR #-}
 
--- | Like 'packedFloatsR' but with a prediction of the number of elements.
+-- | A faster but more specialized variant of:
 --
--- This action is unsafe because a length prediction that is too short
--- causes undefined behavior--possibly a crash.  By contrast, a length
--- prediction that is too long merely overallocates output space.
---
--- >>> unsafePackedFloatsRN (subtract 10) 1 3 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
-unsafePackedFloatsRN :: Foldable f => (a -> Float) -> FieldNumber -> Int -> f a -> MessageBuilder
-unsafePackedFloatsRN f num !count = etaMessageBuilder (embedded num . payload)
-  where
-    payload = MessageBuilder . Prim.unsafeReverseFoldMapFixedPrim (Prim.floatLE . f) count
-{-# INLINE unsafePackedFloatsRN #-}
-
--- | A faster but more specialized variant of 'packedFloatsF'.
+-- > \f num -> packedFloats num . fmap f
 --
 -- >>> packedFloatsV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Float)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
@@ -873,47 +777,31 @@ packedFloatsV f num = etaMessageBuilder (embedded num . payload)
 -- >>> 1 `packedDoubles` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
 packedDoubles :: Foldable f => FieldNumber -> f Double -> MessageBuilder
-packedDoubles = packedDoublesF id
+packedDoubles num = etaMessageBuilder (embedded num . payload)
+  where
+    payload = foldMap (MessageBuilder . RB.doubleLE)
 {-# INLINE packedDoubles #-}
 
--- | Encode doubles in the space-efficient packed format.
--- But consider 'packedDoublesV' or 'packedDoublesR', either of which may be faster.
+-- | A faster but more specialized variant of 'packedDoubles'.
 --
--- >>> packedDoublesF (subtract 10) 1 [11, 12, 13]
+-- Generalizes 'packedDoublesV', provided that any new instance
+-- of 'Vector' is given a corresponding instance of 'ToRepeated'.
+--
+-- >>> packedDoublesR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
-packedDoublesF :: Foldable f => (a -> Double) -> FieldNumber -> f a -> MessageBuilder
-packedDoublesF f num = etaMessageBuilder (embedded num . payload)
+packedDoublesR :: ToRepeated c Double => FieldNumber -> c -> MessageBuilder
+packedDoublesR num = etaMessageBuilder (embedded num . payload)
   where
-    payload = foldMap (MessageBuilder . RB.doubleLE . f)
-{-# INLINE packedDoublesF #-}
-
--- | In reverse order, encode doubles in the space-efficient packed format.
---
--- The values to be encoded are specified by mapping foldable elements.
---
--- >>> packedDoublesR (subtract 10) 1 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
-packedDoublesR :: Foldable f => (a -> Double) -> FieldNumber -> f a -> MessageBuilder
-packedDoublesR f num = etaMessageBuilder (embedded num . payload)
-  where
-    payload = foldr (flip (<>) . MessageBuilder . RB.doubleLE . f) mempty
+    payload c = MessageBuilder $ case toRepeated c of
+      ReverseRepeated Nothing xs ->
+        foldr (flip (<>) . RB.doubleLE) mempty xs
+      ReverseRepeated (Just count) xs ->
+        Prim.unsafeReverseFoldMapFixedPrim Prim.doubleLE count xs
 {-# INLINE packedDoublesR #-}
 
--- | Like 'packedDoublesR' but with a prediction of the number of elements.
+-- | A faster but more specialized variant of:
 --
--- This action is unsafe because a length prediction that is too short
--- causes undefined behavior--possibly a crash.  By contrast, a length
--- prediction that is too long merely overallocates output space.
---
--- >>> unsafePackedDoublesRN (subtract 10) 1 3 [13, 12, 11]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
-unsafePackedDoublesRN :: Foldable f => (a -> Double) -> FieldNumber -> Int -> f a -> MessageBuilder
-unsafePackedDoublesRN f num !count = etaMessageBuilder (embedded num . payload)
-  where
-    payload = MessageBuilder . Prim.unsafeReverseFoldMapFixedPrim (Prim.doubleLE . f) count
-{-# INLINE unsafePackedDoublesRN #-}
-
--- | A faster but more specialized variant of 'packedDoublesF'.
+-- > \f num -> packedDoubles num . fmap f
 --
 -- >>> packedDoublesV (subtract 10) 1 ([11, 12, 13] :: Data.Vector.Vector Double)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"

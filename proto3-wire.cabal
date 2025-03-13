@@ -37,7 +37,7 @@ library
       base >=4.12 && <=5.0
     , bytestring >=0.10.6.0 && <0.13.0
     , cereal >= 0.5.1 && <0.6
-    , containers >=0.5 && < 0.8
+    , containers >=0.5 && <0.8
     , deepseq >=1.4 && <1.6
     , hashable <1.6
     , parameterized >=0.5.0.0 && <1
@@ -58,11 +58,13 @@ library
     Proto3.Wire.Class
     Proto3.Wire.Decode
     Proto3.Wire.Encode
+    Proto3.Wire.Encode.Repeated
+    Proto3.Wire.FoldR
     Proto3.Wire.Reverse
+    Proto3.Wire.Reverse.Internal
     Proto3.Wire.Reverse.Prim
     Proto3.Wire.Tutorial
     Proto3.Wire.Types
-    Proto3.Wire.Reverse.Internal
 
   other-modules:
     Proto3.Wire.Reverse.Width
@@ -77,6 +79,7 @@ test-suite tests
       base >=4.9 && <=5.0
     , bytestring >=0.10.6.0 && <0.13.0
     , cereal >= 0.5.1 && <0.6
+    , containers >=0.5 && <0.8
     , doctest >= 0.7.0 && <0.24.0
     , proto3-wire
     , QuickCheck >=2.8 && <3.0
