@@ -131,7 +131,7 @@ import           GHC.TypeLits                  ( KnownNat, Nat, type (+) )
 import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
                                                  (&<>) )
 import           Parameterized.Data.Monoid     ( PMEmpty(..) )
-import           Proto3.Wire.Encode.Repeated   ( Repeated(..), ToRepeated(..) )
+import           Proto3.Wire.Encode.Repeated   ( ToRepeated, mapRepeated )
 import qualified Proto3.Wire.Reverse           as RB
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 import           Proto3.Wire.Class
@@ -578,6 +578,20 @@ shortByteString :: FieldNumber -> BS.ShortByteString -> MessageBuilder
 shortByteString num = embedded num . MessageBuilder . RB.shortByteString
 {-# INLINE shortByteString #-}
 
+-- | Encodes a packed repeated field whose elements may vary in width.
+packedVariableWidthFieldR ::
+  ToRepeated c a => (a -> RB.BuildR) -> FieldNumber -> c -> MessageBuilder
+packedVariableWidthFieldR f num =
+  etaMessageBuilder (embedded num . MessageBuilder . RB.repeatedBuildR . mapRepeated f)
+{-# INLINE packedVariableWidthFieldR #-}
+
+-- | Encodes a packed repeated field whose elements never vary in width.
+packedFixedWidthFieldR ::
+  (ToRepeated c a, KnownNat w) => (a -> Prim.FixedPrim w) -> FieldNumber -> c -> MessageBuilder
+packedFixedWidthFieldR f num =
+  etaMessageBuilder (embedded num . MessageBuilder . RB.repeatedFixedPrimR . mapRepeated f)
+{-# INLINE packedFixedWidthFieldR #-}
+
 -- | Encode varints in the space-efficient packed format.
 -- But consider 'packedVarintsV' or 'packedVarintsR', either of which may be faster.
 --
@@ -597,10 +611,7 @@ packedVarints num = etaMessageBuilder (embedded num . payload)
 -- >>> packedVarintsR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
 packedVarintsR :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
-packedVarintsR num = etaMessageBuilder (embedded num . payload)
-  where
-    payload = foldr (flip (<>) . liftBoundedPrim . base128Varint64) mempty .
-              reverseRepeated . toRepeated
+packedVarintsR = packedVariableWidthFieldR RB.word64Base128LEVar
 {-# INLINE packedVarintsR #-}
 
 -- | A faster but more specialized variant of:
@@ -626,13 +637,7 @@ packedVarintsV f num = embedded num . payload
 -- >>> packedBoolsR @[_] 1 [True, False]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
 packedBoolsR :: ToRepeated c Bool => FieldNumber -> c -> MessageBuilder
-packedBoolsR num = etaMessageBuilder (embedded num . payload)
-  where
-    payload c = MessageBuilder $ case toRepeated c of
-      ReverseRepeated Nothing xs ->
-        foldr (flip (<>) . RB.word8 . fromIntegral . fromEnum) mempty xs
-      ReverseRepeated (Just count) xs ->
-        Prim.unsafeReverseFoldMapFixedPrim (Prim.word8 . fromIntegral . fromEnum) count xs
+packedBoolsR = packedFixedWidthFieldR (Prim.word8 . fromIntegral . fromEnum)
 {-# INLINE packedBoolsR #-}
 
 -- | A faster but more specialized variant of:
@@ -667,13 +672,7 @@ packedFixed32 num = etaMessageBuilder (embedded num . payload)
 -- >>> packedFixed32R @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
 packedFixed32R :: ToRepeated c Word32 => FieldNumber -> c -> MessageBuilder
-packedFixed32R num = etaMessageBuilder (embedded num . payload)
-  where
-    payload c = MessageBuilder $ case toRepeated c of
-      ReverseRepeated Nothing xs ->
-        foldr (flip (<>) . RB.word32LE) mempty xs
-      ReverseRepeated (Just count) xs ->
-        Prim.unsafeReverseFoldMapFixedPrim Prim.word32LE count xs
+packedFixed32R = packedFixedWidthFieldR Prim.word32LE
 {-# INLINE packedFixed32R #-}
 
 -- | A faster but more specialized variant of:
@@ -708,13 +707,7 @@ packedFixed64 num = etaMessageBuilder (embedded num . payload)
 -- >>> packedFixed64R @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 packedFixed64R :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
-packedFixed64R num = etaMessageBuilder (embedded num . payload)
-  where
-    payload c = MessageBuilder $ case toRepeated c of
-      ReverseRepeated Nothing xs ->
-        foldr (flip (<>) . RB.word64LE) mempty xs
-      ReverseRepeated (Just count) xs ->
-        Prim.unsafeReverseFoldMapFixedPrim Prim.word64LE count xs
+packedFixed64R = packedFixedWidthFieldR Prim.word64LE
 {-# INLINE packedFixed64R #-}
 
 -- | A faster but more specialized variant of:
@@ -749,13 +742,7 @@ packedFloats num = etaMessageBuilder (embedded num . payload)
 -- >>> packedFloatsR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
 packedFloatsR :: ToRepeated c Float => FieldNumber -> c -> MessageBuilder
-packedFloatsR num = etaMessageBuilder (embedded num . payload)
-  where
-    payload c = MessageBuilder $ case toRepeated c of
-      ReverseRepeated Nothing xs ->
-        foldr (flip (<>) . RB.floatLE) mempty xs
-      ReverseRepeated (Just count) xs ->
-        Prim.unsafeReverseFoldMapFixedPrim Prim.floatLE count xs
+packedFloatsR = packedFixedWidthFieldR Prim.floatLE
 {-# INLINE packedFloatsR #-}
 
 -- | A faster but more specialized variant of:
@@ -790,13 +777,7 @@ packedDoubles num = etaMessageBuilder (embedded num . payload)
 -- >>> packedDoublesR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
 packedDoublesR :: ToRepeated c Double => FieldNumber -> c -> MessageBuilder
-packedDoublesR num = etaMessageBuilder (embedded num . payload)
-  where
-    payload c = MessageBuilder $ case toRepeated c of
-      ReverseRepeated Nothing xs ->
-        foldr (flip (<>) . RB.doubleLE) mempty xs
-      ReverseRepeated (Just count) xs ->
-        Prim.unsafeReverseFoldMapFixedPrim Prim.doubleLE count xs
+packedDoublesR = packedFixedWidthFieldR Prim.doubleLE
 {-# INLINE packedDoublesR #-}
 
 -- | A faster but more specialized variant of:

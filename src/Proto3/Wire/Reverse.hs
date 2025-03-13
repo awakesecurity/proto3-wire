@@ -26,6 +26,7 @@
 
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MagicHash #-}
 
 module Proto3.Wire.Reverse
@@ -80,6 +81,8 @@ module Proto3.Wire.Reverse
 
     -- * Helpful combinators
     , foldlRVector
+    , repeatedBuildR
+    , repeatedFixedPrimR
 
     -- * Exported for testing purposes only.
     , testWithUnused
@@ -101,12 +104,14 @@ import qualified Data.Text.Lazy                as TL
 import qualified Data.Text.Short               as TS
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
+import           Foreign                       ( castPtr, copyBytes )
 import           GHC.Exts                      ( Addr#, Int(..), Int# )
 #if !MIN_VERSION_bytestring(0,11,0)
 import           GHC.Exts                      ( plusAddr# )
 #endif
 import           GHC.ForeignPtr                ( ForeignPtr(..), ForeignPtrContents )
-import           Foreign                       ( castPtr, copyBytes )
+import           GHC.TypeLits                  ( KnownNat )
+import           Proto3.Wire.Encode.Repeated   ( Repeated(..), ToRepeated(..) )
 import           Proto3.Wire.Reverse.Internal
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 
@@ -851,9 +856,40 @@ word64Base128LEVar_inline = \x ->
 {-# INLINE word64Base128LEVar_inline #-}
 
 -- | Essentially 'foldMap', but iterates right to left for efficiency.
+--
+-- See also: 'repeatedBuildR'
 vectorBuildR :: Vector v a => (a -> BuildR) -> v a -> BuildR
 vectorBuildR f = etaBuildR (foldlRVector (\acc x -> acc <> f x) mempty)
 {-# INLINE vectorBuildR #-}
+
+-- | Concatenates the given builders, iterating right to left where practical.
+--
+-- For example:
+--
+-- >>> Data.ByteString.Lazy.unpack (toLazyByteString (repeatedBuildR (map word8 [42,67])))
+-- [42,67]
+--
+-- See also: 'repeatedFixedPrimR', 'vectorBuildR'
+repeatedBuildR :: ToRepeated c BuildR => c -> BuildR
+repeatedBuildR = etaBuildR (foldr (flip (<>)) mempty . reverseRepeated . toRepeated)
+{-# INLINE repeatedBuildR #-}
+
+-- | Concatenates the given fixed-width primitives, iterating right to left where practical
+-- and consolidating space checks if the number of primitives has been predicted.
+--
+-- For example:
+--
+-- >>> Data.ByteString.Lazy.unpack (toLazyByteString (repeatedFixedPrimR (map Proto3.Wire.Reverse.Prim.word8 [42,67])))
+-- [42,67]
+--
+-- See also: 'repeatedBuildR'
+repeatedFixedPrimR :: (ToRepeated c (Prim.FixedPrim w), KnownNat w) => c -> BuildR
+repeatedFixedPrimR = etaBuildR $ \c ->
+  let ReverseRepeated prediction prims = toRepeated c in
+  case prediction of
+    Nothing -> foldr (\p a -> a <> Prim.liftBoundedPrim (Prim.liftFixedPrim p)) mempty prims
+    Just count -> Prim.unsafeReverseFoldMapFixedPrim id count prims
+{-# INLINE repeatedFixedPrimR #-}
 
 -- | Exported for testing purposes only.
 testWithUnused :: (Int -> BuildR) -> BuildR
