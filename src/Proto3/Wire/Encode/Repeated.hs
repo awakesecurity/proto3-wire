@@ -30,6 +30,7 @@
 -- | Presents right-associative folds as 'Foldable' sequences.
 module Proto3.Wire.Encode.Repeated
   ( Repeated(..)
+  , nullRepeated
   , ToRepeated(..)
   , mapRepeated
   ) where
@@ -77,6 +78,10 @@ data Repeated e = ReverseRepeated
 deriving stock instance Eq e => Eq (Repeated e)
 deriving stock instance Read e => Read (Repeated e)
 deriving stock instance Show e => Show (Repeated e)
+
+nullRepeated :: Repeated e -> Bool
+nullRepeated c = null (reverseRepeated c)
+{-# INLINE nullRepeated #-}
 
 -- | For each container type, specifies the optimal method for reverse iteration.
 type ToRepeated :: forall cr . TYPE cr -> forall er . TYPE er -> Constraint

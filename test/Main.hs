@@ -61,7 +61,7 @@ import           Proto3.Wire.FoldR     ( FoldR )
 import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Reverse   as Reverse
 import qualified Proto3.Wire.Encode    as Encode
-import           Proto3.Wire.Encode.Repeated ( Repeated(..), ToRepeated(..) )
+import           Proto3.Wire.Encode.Repeated ( Repeated(..), ToRepeated(..), nullRepeated )
 import qualified Proto3.Wire.Decode    as Decode
 
 import qualified Test.DocTest
@@ -805,7 +805,8 @@ data ExpectedCountPrediction c = NoCP | CorrectCP | SameCP (c -> Maybe Int)
 
 toRepeatedTests :: TestTree
 toRepeatedTests = testGroup "ToRepeated"
-  [ test_ToRepeated (SameCP countRepeated) genRepeated (reverse . toList . reverseRepeated)
+  [ test_nullRepeated
+  , test_ToRepeated (SameCP countRepeated) genRepeated (reverse . toList . reverseRepeated)
   , test_ToRepeated CorrectCP QC.arbitrary (toList @Identity @Word8)
   , test_ToRepeated NoCP QC.arbitrary (id @[Word8])
   , test_ToRepeated NoCP ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
@@ -827,6 +828,12 @@ toRepeatedTests = testGroup "ToRepeated"
         { countRepeated = if predict then Just (length xs) else Nothing
         , reverseRepeated = GHC.Exts.fromList xs
         }
+
+    test_nullRepeated :: TestTree
+    test_nullRepeated =
+      QC.testProperty "nullRepeated" $
+        QC.forAll genRepeated $ \c ->
+          nullRepeated c === null (reverseRepeated c)
 
     test_ToRepeated ::
       forall c e .
@@ -853,6 +860,9 @@ toRepeatedTests = testGroup "ToRepeated"
           in
             QC.counterexample "correctly reversed elements" (toList reversed === reverse es)
             QC..&&.
+            QC.counterexample "correct count prediction if any"
+              (all @Maybe (== length es) prediction)
+            QC..&&.
             case expectedCP of
               NoCP ->
                 QC.counterexample "no count prediction" (prediction === Nothing)
@@ -860,6 +870,3 @@ toRepeatedTests = testGroup "ToRepeated"
                 QC.counterexample "correct count prediction" (prediction === Just (length es))
               SameCP expected ->
                 QC.counterexample "unchanged count prediction" (prediction === expected c)
-                QC..&&.
-                QC.counterexample "as self-test of random input: correct count prediction if any"
-                  (all @Maybe (== length es) prediction)
