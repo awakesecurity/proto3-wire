@@ -94,6 +94,8 @@ module Proto3.Wire.Encode
     , shortByteString
       -- * Embedded Messages
     , embedded
+      -- * Folds
+    , repeatedMessageBuilder
       -- * Packed repeated fields
     , packedVarints
     , packedVarintsR
@@ -577,6 +579,17 @@ lazyByteString num = embedded num . MessageBuilder . RB.lazyByteString
 shortByteString :: FieldNumber -> BS.ShortByteString -> MessageBuilder
 shortByteString num = embedded num . MessageBuilder . RB.shortByteString
 {-# INLINE shortByteString #-}
+
+-- | Concatenates the given builders, which typically build fields within the same message.
+--
+-- For example:
+--
+-- >>> repeatedMessageBuilder @[MessageBuilder] [1 `bool` True, 2 `int32` 42]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\SOH\DLE*"
+repeatedMessageBuilder :: ToRepeated c MessageBuilder => c -> MessageBuilder
+repeatedMessageBuilder =
+  etaMessageBuilder (MessageBuilder . RB.repeatedBuildR . mapRepeated reverseMessageBuilder)
+{-# INLINE repeatedMessageBuilder #-}
 
 -- | Encodes a packed repeated field whose elements may vary in width.
 packedVariableWidthFieldR ::
