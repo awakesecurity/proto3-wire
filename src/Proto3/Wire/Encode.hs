@@ -98,8 +98,13 @@ module Proto3.Wire.Encode
     , repeatedMessageBuilder
       -- * Packed repeated fields
     , packedVarints
-    , packedVarintsR
     , packedVarintsV
+    , packedInt32R
+    , packedInt64R
+    , packedUInt32R
+    , packedUInt64R
+    , packedSInt32R
+    , packedSInt64R
     , packedBoolsR
     , packedBoolsV
     , packedFixed32
@@ -108,6 +113,8 @@ module Proto3.Wire.Encode
     , packedFixed64
     , packedFixed64R
     , packedFixed64V
+    , packedSFixed32R
+    , packedSFixed64R
     , packedFloats
     , packedFloatsR
     , packedFloatsV
@@ -594,14 +601,14 @@ repeatedMessageBuilder =
 -- | Encodes a packed repeated field whose elements may vary in width.
 packedVariableWidthFieldR ::
   ToRepeated c a => (a -> RB.BuildR) -> FieldNumber -> c -> MessageBuilder
-packedVariableWidthFieldR f num =
+packedVariableWidthFieldR f !num =
   etaMessageBuilder (embedded num . MessageBuilder . RB.repeatedBuildR . mapRepeated f)
 {-# INLINE packedVariableWidthFieldR #-}
 
 -- | Encodes a packed repeated field whose elements never vary in width.
 packedFixedWidthFieldR ::
   (ToRepeated c a, KnownNat w) => (a -> Prim.FixedPrim w) -> FieldNumber -> c -> MessageBuilder
-packedFixedWidthFieldR f num =
+packedFixedWidthFieldR f !num =
   etaMessageBuilder (embedded num . MessageBuilder . RB.repeatedFixedPrimR . mapRepeated f)
 {-# INLINE packedFixedWidthFieldR #-}
 
@@ -620,12 +627,16 @@ packedVarints num = etaMessageBuilder (embedded num . payload)
 --
 -- Generalizes 'packedVarintsV', provided that any new instance
 -- of 'Vector' is given a corresponding instance of 'ToRepeated'.
---
--- >>> packedVarintsR @[_] 1 [1, 2, 3]
--- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
-packedVarintsR :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
-packedVarintsR = packedVariableWidthFieldR RB.word64Base128LEVar
-{-# INLINE packedVarintsR #-}
+packedVarints64R :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
+packedVarints64R = packedVariableWidthFieldR RB.word64Base128LEVar
+{-# INLINE packedVarints64R #-}
+
+-- | Like 'packedVarints64R' but supports only 32-bit inputs,
+-- which reduces on executable size in situations where we do
+-- not need to support larger values.
+packedVarints32R :: ToRepeated c Word32 => FieldNumber -> c -> MessageBuilder
+packedVarints32R = packedVariableWidthFieldR RB.word32Base128LEVar
+{-# INLINE packedVarints32R #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -639,6 +650,75 @@ packedVarintsV f num = embedded num . payload
   where
     payload = vectorMessageBuilder (liftBoundedPrim . base128Varint64 . f)
 {-# INLINE packedVarintsV #-}
+
+-- | Encodes a packed repeated @int32@ field.
+--
+-- >>> packedInt32R @[_] 1 [42, -42]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\v*\214\255\255\255\255\255\255\255\255\SOH"
+--
+-- NOTE: Protobuf encoding converts an @int32@ to a 64-bit unsigned value
+-- before encoding it, not a 32-bit value (which would be more efficient).
+--
+-- To quote the specification: "If you use int32 or int64 as the type for
+-- a negative number, the resulting varint is always ten bytes long..."
+-- <https://developers.google.com/protocol-buffers/docs/encoding#varints>
+packedInt32R :: ToRepeated c Int32 => FieldNumber -> c -> MessageBuilder
+packedInt32R !num xs =
+  packedVarints64R num (mapRepeated (fromIntegral @Int32 @Word64) xs)
+{-# INLINE packedInt32R #-}
+
+-- | Encodes a packed repeated @int64@ field.
+--
+-- For example:
+--
+-- >>> packedInt64R @[_] 1 [42, -42]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\v*\214\255\255\255\255\255\255\255\255\SOH"
+packedInt64R :: ToRepeated c Int64 => FieldNumber -> c -> MessageBuilder
+packedInt64R !num xs =
+  packedVarints64R num (mapRepeated (fromIntegral @Int64 @Word64) xs)
+{-# INLINE packedInt64R #-}
+
+-- | Encodes a packed repeated @uint32@ field.
+--
+-- For example:
+--
+-- >>> packedUInt32R @[_] 1 [42, 43, maxBound]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\a*+\255\255\255\255\SI"
+packedUInt32R :: ToRepeated c Word32 => FieldNumber -> c -> MessageBuilder
+packedUInt32R = packedVarints32R
+{-# INLINE packedUInt32R #-}
+
+-- | Encodes a packed repeated @uint64@ field.
+--
+-- For example:
+--
+-- >>> packedUInt64R @[_] 1 [42, 43, maxBound]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f*+\255\255\255\255\255\255\255\255\255\SOH"
+packedUInt64R :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
+packedUInt64R = packedVarints64R
+{-# INLINE packedUInt64R #-}
+
+-- | Encodes a packed repeated @sint32@ field.
+--
+-- For example:
+--
+-- >>> packedSInt32R @[_] 1 [-42, maxBound, minBound]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\vS\254\255\255\255\SI\255\255\255\255\SI"
+packedSInt32R :: ToRepeated c Int32 => FieldNumber -> c -> MessageBuilder
+packedSInt32R !num xs =
+  packedVarints32R num (mapRepeated (fromIntegral @Int32 @Word32 . zigZagEncode) xs)
+{-# INLINE packedSInt32R #-}
+
+-- | Encodes a packed repeated @sint64@ field.
+--
+-- For example:
+--
+-- >>> packedSInt64R @[_] 1 [-42, maxBound, minBound]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\NAKS\254\255\255\255\255\255\255\255\255\SOH\255\255\255\255\255\255\255\255\255\SOH"
+packedSInt64R :: ToRepeated c Int64 => FieldNumber -> c -> MessageBuilder
+packedSInt64R num xs =
+  packedVarints64R num (mapRepeated (fromIntegral @Int64 @Word64 . zigZagEncode) xs)
+{-# INLINE packedSInt64R #-}
 
 -- | A faster but more specialized variant of:
 --
@@ -661,7 +741,7 @@ packedBoolsR = packedFixedWidthFieldR (Prim.word8 . fromIntegral . fromEnum)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
 packedBoolsV ::
   Vector v a => (a -> Bool) -> FieldNumber -> v a -> MessageBuilder
-packedBoolsV f num = embedded num . MessageBuilder . payload
+packedBoolsV f !num = embedded num . MessageBuilder . payload
   where
     payload = Prim.vectorFixedPrim (Prim.word8 . fromIntegral . fromEnum . f)
 {-# INLINE packedBoolsV #-}
@@ -672,7 +752,7 @@ packedBoolsV f num = embedded num . MessageBuilder . payload
 -- >>> packedFixed32 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
 packedFixed32 :: Foldable f => FieldNumber -> f Word32 -> MessageBuilder
-packedFixed32 num = etaMessageBuilder (embedded num . payload)
+packedFixed32 !num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldMap (MessageBuilder . RB.word32LE)
 {-# INLINE packedFixed32 #-}
@@ -696,18 +776,17 @@ packedFixed32R = packedFixedWidthFieldR Prim.word32LE
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
 packedFixed32V ::
   Vector v a => (a -> Word32) -> FieldNumber -> v a -> MessageBuilder
-packedFixed32V f num = etaMessageBuilder (embedded num . payload)
+packedFixed32V f !num = etaMessageBuilder (embedded num . payload)
   where
     payload = MessageBuilder . Prim.vectorFixedPrim (Prim.word32LE . f)
 {-# INLINE packedFixed32V #-}
 
--- | Encode fixed-width Word64s in the space-efficient packed format.
 -- But consider 'packedFixed64V' or 'packedFixed64R', either of which may be faster.
 --
 -- >>> packedFixed64 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 packedFixed64 :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedFixed64 num = etaMessageBuilder (embedded num . payload)
+packedFixed64 !num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldMap (MessageBuilder . RB.word64LE)
 {-# INLINE packedFixed64 #-}
@@ -731,10 +810,30 @@ packedFixed64R = packedFixedWidthFieldR Prim.word64LE
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 packedFixed64V ::
   Vector v a => (a -> Word64) -> FieldNumber -> v a -> MessageBuilder
-packedFixed64V f num = etaMessageBuilder (embedded num . payload)
+packedFixed64V f !num = etaMessageBuilder (embedded num . payload)
   where
     payload = MessageBuilder . Prim.vectorFixedPrim (Prim.word64LE . f)
 {-# INLINE packedFixed64V #-}
+
+-- | Encodes a packed repeated @sfixed32@ field.
+--
+-- For example:
+--
+-- >>> packedSFixed32R @[_] 1 [1, -2, 3]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\254\255\255\255\ETX\NUL\NUL\NUL"
+packedSFixed32R :: ToRepeated c Int32 => FieldNumber -> c -> MessageBuilder
+packedSFixed32R = packedFixedWidthFieldR Prim.int32LE
+{-# INLINE packedSFixed32R #-}
+
+-- | Encodes a packed repeated @sfixed64@ field.
+--
+-- For example:
+--
+-- >>> packedSFixed64R @[_] 1 [1, -2, 3]
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\254\255\255\255\255\255\255\255\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
+packedSFixed64R :: ToRepeated c Int64 => FieldNumber -> c -> MessageBuilder
+packedSFixed64R = packedFixedWidthFieldR Prim.int64LE
+{-# INLINE packedSFixed64R #-}
 
 -- | Encode floats in the space-efficient packed format.
 -- But consider 'packedFloatsV' or 'packedFloatsR', either of which may be faster.
@@ -742,7 +841,7 @@ packedFixed64V f num = etaMessageBuilder (embedded num . payload)
 -- >>> 1 `packedFloats` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
 packedFloats :: Foldable f => FieldNumber -> f Float -> MessageBuilder
-packedFloats num = etaMessageBuilder (embedded num . payload)
+packedFloats !num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldMap (MessageBuilder . RB.floatLE)
 {-# INLINE packedFloats #-}
@@ -766,7 +865,7 @@ packedFloatsR = packedFixedWidthFieldR Prim.floatLE
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
 packedFloatsV ::
   Vector v a => (a -> Float) -> FieldNumber -> v a -> MessageBuilder
-packedFloatsV f num = etaMessageBuilder (embedded num . payload)
+packedFloatsV f !num = etaMessageBuilder (embedded num . payload)
   where
     payload = MessageBuilder . Prim.vectorFixedPrim (Prim.floatLE . f)
 {-# INLINE packedFloatsV #-}
@@ -777,7 +876,7 @@ packedFloatsV f num = etaMessageBuilder (embedded num . payload)
 -- >>> 1 `packedDoubles` [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
 packedDoubles :: Foldable f => FieldNumber -> f Double -> MessageBuilder
-packedDoubles num = etaMessageBuilder (embedded num . payload)
+packedDoubles !num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldMap (MessageBuilder . RB.doubleLE)
 {-# INLINE packedDoubles #-}
@@ -818,10 +917,10 @@ packedDoublesV f num = etaMessageBuilder (embedded num . payload)
 -- >>> 1 `embedded` (1 `string` "this message" <> 2 `string` " is embedded")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\FS\n\fthis message\DC2\f is embedded"
 embedded :: FieldNumber -> MessageBuilder -> MessageBuilder
-embedded = \num (MessageBuilder bb) ->
+embedded = \(!num) (MessageBuilder bb) ->
     MessageBuilder (RB.withLengthOf (prefix num) bb)
   where
-    prefix num len = Prim.liftBoundedPrim $
+    prefix !num len = Prim.liftBoundedPrim $
       unMessageBoundedPrim (fieldHeader num LengthDelimited) &<>
       Prim.wordBase128LEVar (fromIntegral @Int @Word len)
     {-# INLINE prefix #-}
