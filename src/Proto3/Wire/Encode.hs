@@ -309,7 +309,7 @@ fieldHeader = \num wt -> base128Varint64_inline
 -- a negative number, the resulting varint is always ten bytes long..."
 -- <https://developers.google.com/protocol-buffers/docs/encoding#varints>
 int32 :: FieldNumber -> Int32 -> MessageBuilder
-int32 = \num i -> liftBoundedPrim $
+int32 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Varint &<> base128Varint64 (fromIntegral i)
 {-# INLINE int32 #-}
 
@@ -322,7 +322,7 @@ int32 = \num i -> liftBoundedPrim $
 -- >>> 1 `int64` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\214\255\255\255\255\255\255\255\255\SOH"
 int64 :: FieldNumber -> Int64 -> MessageBuilder
-int64 = \num i -> liftBoundedPrim $
+int64 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Varint &<> base128Varint64 (fromIntegral i)
 {-# INLINE int64 #-}
 
@@ -333,7 +333,7 @@ int64 = \num i -> liftBoundedPrim $
 -- >>> 1 `uint32` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint32 :: FieldNumber -> Word32 -> MessageBuilder
-uint32 = \num i -> liftBoundedPrim $
+uint32 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Varint &<> base128Varint32 i
 {-# INLINE uint32 #-}
 
@@ -344,7 +344,7 @@ uint32 = \num i -> liftBoundedPrim $
 -- >>> 1 `uint64` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b*"
 uint64 :: FieldNumber -> Word64 -> MessageBuilder
-uint64 = \num i -> liftBoundedPrim $
+uint64 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Varint &<> base128Varint64 i
 {-# INLINE uint64 #-}
 
@@ -359,7 +359,7 @@ uint64 = \num i -> liftBoundedPrim $
 -- >>> 1 `sint32` minBound
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\SI"
 sint32 :: FieldNumber -> Int32 -> MessageBuilder
-sint32 = \num i ->
+sint32 = \(!num) i ->
   uint32 num (fromIntegral (zigZagEncode i))
 {-# INLINE sint32 #-}
 
@@ -374,7 +374,7 @@ sint32 = \num i ->
 -- >>> 1 `sint64` minBound
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\255\255\255\255\255\255\255\255\255\SOH"
 sint64 :: FieldNumber -> Int64 -> MessageBuilder
-sint64 = \num i ->
+sint64 = \(!num) i ->
   uint64 num (fromIntegral (zigZagEncode i))
 {-# INLINE sint64 #-}
 
@@ -385,7 +385,7 @@ sint64 = \num i ->
 -- >>> 1 `fixed32` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\r*\NUL\NUL\NUL"
 fixed32 :: FieldNumber -> Word32 -> MessageBuilder
-fixed32 = \num i -> liftBoundedPrim $
+fixed32 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Fixed32 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.word32LE i))
 {-# INLINE fixed32 #-}
@@ -397,7 +397,7 @@ fixed32 = \num i -> liftBoundedPrim $
 -- >>> 1 `fixed64` 42
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t*\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
 fixed64 :: FieldNumber -> Word64 -> MessageBuilder
-fixed64 = \num i -> liftBoundedPrim $
+fixed64 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Fixed64 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.word64LE i))
 {-# INLINE fixed64 #-}
@@ -408,7 +408,7 @@ fixed64 = \num i -> liftBoundedPrim $
 --
 -- > 1 `sfixed32` (-42)
 sfixed32 :: FieldNumber -> Int32 -> MessageBuilder
-sfixed32 = \num i -> liftBoundedPrim $
+sfixed32 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Fixed32 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.int32LE i))
 {-# INLINE sfixed32 #-}
@@ -420,7 +420,7 @@ sfixed32 = \num i -> liftBoundedPrim $
 -- >>> 1 `sfixed64` (-42)
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t\214\255\255\255\255\255\255\255"
 sfixed64 :: FieldNumber -> Int64 -> MessageBuilder
-sfixed64 = \num i -> liftBoundedPrim $
+sfixed64 = \(!num) i -> liftBoundedPrim $
     fieldHeader num Fixed64 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.int64LE i))
 {-# INLINE sfixed64 #-}
@@ -432,7 +432,7 @@ sfixed64 = \num i -> liftBoundedPrim $
 -- >>> 1 `float` 3.14
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\r\195\245H@"
 float :: FieldNumber -> Float -> MessageBuilder
-float = \num f -> liftBoundedPrim $
+float = \(!num) f -> liftBoundedPrim $
     fieldHeader num Fixed32 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.floatLE f))
 {-# INLINE float #-}
@@ -444,7 +444,7 @@ float = \num f -> liftBoundedPrim $
 -- >>> 1 `double` 3.14
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\t\US\133\235Q\184\RS\t@"
 double :: FieldNumber -> Double -> MessageBuilder
-double = \num d -> liftBoundedPrim $
+double = \(!num) d -> liftBoundedPrim $
     fieldHeader num Fixed64 &<>
     MessageBoundedPrim (Prim.liftFixedPrim (Prim.doubleLE d))
 {-# INLINE double #-}
@@ -473,7 +473,7 @@ double = \num d -> liftBoundedPrim $
 -- >>> 1 `enum` Triangle <> 2 `enum` Gap3
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\STX\DLE\ETX"
 enum :: ProtoEnum e => FieldNumber -> e -> MessageBuilder
-enum = \num e -> liftBoundedPrim $
+enum = \(!num) e -> liftBoundedPrim $
     fieldHeader num Varint &<>
     base128Varint32 (fromIntegral @Int32 @Word32 (fromProtoEnum e))
 {-# INLINE enum #-}
@@ -485,7 +485,7 @@ enum = \num e -> liftBoundedPrim $
 -- >>> 1 `bool` True
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\b\SOH"
 bool :: FieldNumber -> Bool -> MessageBuilder
-bool = \num b -> liftBoundedPrim $
+bool = \(!num) b -> liftBoundedPrim $
     fieldHeader num Varint &<>
     MessageBoundedPrim
       (Prim.liftFixedPrim (Prim.word8 (fromIntegral (fromEnum b))))
@@ -503,7 +503,7 @@ bool = \num b -> liftBoundedPrim $
 -- >>> 1 `bytes` (Proto3.Wire.Reverse.stringUtf8 "testing")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 bytes :: FieldNumber -> RB.BuildR -> MessageBuilder
-bytes num = embedded num . MessageBuilder
+bytes !num = embedded num . MessageBuilder
 {-# INLINE bytes #-}
 
 -- | Like 'bytes' but omits the field if it would be empty, which
@@ -534,7 +534,7 @@ bytesIfNonempty !num bb =
 -- >>> 1 `string` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 string :: FieldNumber -> String -> MessageBuilder
-string num = embedded num . MessageBuilder . RB.stringUtf8
+string !num = embedded num . MessageBuilder . RB.stringUtf8
 {-# INLINE string #-}
 
 -- | Encode lazy `Text` as UTF-8
@@ -544,7 +544,7 @@ string num = embedded num . MessageBuilder . RB.stringUtf8
 -- >>> 1 `text` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 text :: FieldNumber -> Text.Lazy.Text -> MessageBuilder
-text num = embedded num . MessageBuilder . RB.lazyTextUtf8
+text !num = embedded num . MessageBuilder . RB.lazyTextUtf8
 {-# INLINE text #-}
 
 -- | Encode a `Text.Short.ShortText` as UTF-8.
@@ -554,7 +554,7 @@ text num = embedded num . MessageBuilder . RB.lazyTextUtf8
 -- >>> 1 `shortText` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 shortText :: FieldNumber -> Text.Short.ShortText -> MessageBuilder
-shortText num = embedded num . MessageBuilder . RB.shortTextUtf8
+shortText !num = embedded num . MessageBuilder . RB.shortTextUtf8
 {-# INLINE shortText #-}
 
 -- | Encode a collection of bytes in the form of a strict 'B.ByteString'.
@@ -564,7 +564,7 @@ shortText num = embedded num . MessageBuilder . RB.shortTextUtf8
 -- >>> 1 `byteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 byteString :: FieldNumber -> B.ByteString -> MessageBuilder
-byteString num = embedded num . MessageBuilder . RB.byteString
+byteString !num = embedded num . MessageBuilder . RB.byteString
 {-# INLINE byteString #-}
 
 -- | Encode a lazy bytestring.
@@ -574,7 +574,7 @@ byteString num = embedded num . MessageBuilder . RB.byteString
 -- >>> 1 `lazyByteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 lazyByteString :: FieldNumber -> BL.ByteString -> MessageBuilder
-lazyByteString num = embedded num . MessageBuilder . RB.lazyByteString
+lazyByteString !num = embedded num . MessageBuilder . RB.lazyByteString
 {-# INLINE lazyByteString #-}
 
 -- | Encode a `BS.ShortByteString`.
@@ -584,7 +584,7 @@ lazyByteString num = embedded num . MessageBuilder . RB.lazyByteString
 -- >>> 1 `shortByteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 shortByteString :: FieldNumber -> BS.ShortByteString -> MessageBuilder
-shortByteString num = embedded num . MessageBuilder . RB.shortByteString
+shortByteString !num = embedded num . MessageBuilder . RB.shortByteString
 {-# INLINE shortByteString #-}
 
 -- | Concatenates the given builders, which typically build fields within the same message.
@@ -618,7 +618,7 @@ packedFixedWidthFieldR f !num =
 -- >>> packedVarints 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
 packedVarints :: Foldable f => FieldNumber -> f Word64 -> MessageBuilder
-packedVarints num = etaMessageBuilder (embedded num . payload)
+packedVarints !num = etaMessageBuilder (embedded num . payload)
   where
     payload = foldMap (liftBoundedPrim . base128Varint64)
 {-# INLINE packedVarints #-}
@@ -646,7 +646,7 @@ packedVarints32R = packedVariableWidthFieldR RB.word32Base128LEVar
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\ETX\SOH\STX\ETX"
 packedVarintsV ::
   Vector v a => (a -> Word64) -> FieldNumber -> v a -> MessageBuilder
-packedVarintsV f num = embedded num . payload
+packedVarintsV f !num = embedded num . payload
   where
     payload = vectorMessageBuilder (liftBoundedPrim . base128Varint64 . f)
 {-# INLINE packedVarintsV #-}
@@ -716,7 +716,7 @@ packedSInt32R !num xs =
 -- >>> packedSInt64R @[_] 1 [-42, maxBound, minBound]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\NAKS\254\255\255\255\255\255\255\255\255\SOH\255\255\255\255\255\255\255\255\255\SOH"
 packedSInt64R :: ToRepeated c Int64 => FieldNumber -> c -> MessageBuilder
-packedSInt64R num xs =
+packedSInt64R !num xs =
   packedVarints64R num (mapRepeated (fromIntegral @Int64 @Word64 . zigZagEncode) xs)
 {-# INLINE packedSInt64R #-}
 
@@ -900,7 +900,7 @@ packedDoublesR = packedFixedWidthFieldR Prim.doubleLE
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
 packedDoublesV ::
   Vector v a => (a -> Double) -> FieldNumber -> v a -> MessageBuilder
-packedDoublesV f num = etaMessageBuilder (embedded num . payload)
+packedDoublesV f !num = etaMessageBuilder (embedded num . payload)
   where
     payload = MessageBuilder . Prim.vectorFixedPrim (Prim.doubleLE . f)
 {-# INLINE packedDoublesV #-}
