@@ -64,7 +64,7 @@ jobs:
           stack-version: 2.11
 
       - name: Cache dependencies
-        uses: actions/cache@v3.3.1
+        uses: actions/cache@v3.4.0
         with:
           path: ~/.stack
           key: ${{ runner.os }}-${{ matrix.ghc }}-stack
