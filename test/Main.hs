@@ -24,6 +24,8 @@
 
 module Main where
 
+import           Acc                   ( Acc )
+import           Acc.NeAcc             ( NeAcc )
 import           Control.Arrow         ( (&&&), second )
 import           Control.Monad         ( guard, void )
 import           Control.Monad.Trans.State ( StateT(..) )
@@ -810,6 +812,8 @@ toRepeatedTests = testGroup "ToRepeated"
   , test_ToRepeated CorrectCP QC.arbitrary (toList @Identity @Word8)
   , test_ToRepeated NoCP QC.arbitrary (id @[Word8])
   , test_ToRepeated NoCP ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
+  , test_ToRepeated NoCP (GHC.Exts.fromList <$> QC.arbitrary) (toList @Acc @Word8)
+  , test_ToRepeated NoCP (GHC.Exts.fromList <$> ((:) <$> QC.arbitrary <*> QC.arbitrary)) (toList @NeAcc @Word8)
   , test_ToRepeated CorrectCP (fmap V.fromList QC.arbitrary) (V.toList @Word8)
   , test_ToRepeated CorrectCP (fmap VS.fromList QC.arbitrary) (VS.toList @Word8)
   , test_ToRepeated CorrectCP (fmap VU.fromList QC.arbitrary) (VU.toList @Word8)
