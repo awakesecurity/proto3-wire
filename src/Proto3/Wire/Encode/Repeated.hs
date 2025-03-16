@@ -35,8 +35,6 @@ module Proto3.Wire.Encode.Repeated
   , mapRepeated
   ) where
 
-import Acc (Acc)
-import Acc.NeAcc (NeAcc)
 import Data.Functor.Identity (Identity(..))
 import Data.IntMap.Lazy qualified
 import Data.IntSet qualified
@@ -113,18 +111,6 @@ instance ToRepeated (Data.List.NonEmpty.NonEmpty a) a
   where
     toRepeated xs = ReverseRepeated Nothing (FoldR (\f z -> foldl (flip f) z xs))
       -- Unavoidably reads to the end of the list before presenting the last element.
-    {-# INLINE toRepeated #-}
-
-instance ToRepeated (Acc a) a
-  where
-    toRepeated xs = ReverseRepeated Nothing (FoldR (\f z -> foldl (flip f) z xs))
-      -- Should present the last element without following any left branches.
-    {-# INLINE toRepeated #-}
-
-instance ToRepeated (NeAcc a) a
-  where
-    toRepeated xs = ReverseRepeated Nothing (FoldR (\f z -> foldl (flip f) z xs))
-      -- Should present the last element without following any left branches.
     {-# INLINE toRepeated #-}
 
 instance ToRepeated (Data.Vector.Vector a) a
