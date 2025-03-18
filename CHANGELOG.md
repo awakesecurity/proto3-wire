@@ -1,10 +1,12 @@
-1.4.4
-  - Support GHC 9.10
+1.4.5
   - Add encoders for packed repeated fields that can iterate in
     reverse order for speed when practical and will predict size
     when it is inexpensive to do so.
   - Add bytesIfNonempty, etaMessageBuilder, unsafeFromByteString,
     unsafeFromShortByteString, repeatedMessageBuilder.
+
+1.4.4
+  - Support GHC 9.10
 
 1.4.3
   - Support GHC 9.8
