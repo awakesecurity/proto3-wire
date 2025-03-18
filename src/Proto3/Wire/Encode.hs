@@ -561,7 +561,7 @@ shortText !num = embedded num . MessageBuilder . RB.shortTextUtf8
 -- >>> 1 `byteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 byteString :: FieldNumber -> B.ByteString -> MessageBuilder
-byteString !num = embedded num . MessageBuilder . RB.byteString
+byteString !num = embedded num . unsafeFromByteString
 {-# INLINE byteString #-}
 
 -- | Encode a lazy bytestring.
@@ -571,7 +571,7 @@ byteString !num = embedded num . MessageBuilder . RB.byteString
 -- >>> 1 `lazyByteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 lazyByteString :: FieldNumber -> BL.ByteString -> MessageBuilder
-lazyByteString !num = embedded num . MessageBuilder . RB.lazyByteString
+lazyByteString !num = embedded num . unsafeFromLazyByteString
 {-# INLINE lazyByteString #-}
 
 -- | Encode a `BS.ShortByteString`.
@@ -581,7 +581,7 @@ lazyByteString !num = embedded num . MessageBuilder . RB.lazyByteString
 -- >>> 1 `shortByteString` "testing"
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 shortByteString :: FieldNumber -> BS.ShortByteString -> MessageBuilder
-shortByteString !num = embedded num . MessageBuilder . RB.shortByteString
+shortByteString !num = embedded num . unsafeFromShortByteString
 {-# INLINE shortByteString #-}
 
 -- | Concatenates the given builders, which typically build fields within the same message.
