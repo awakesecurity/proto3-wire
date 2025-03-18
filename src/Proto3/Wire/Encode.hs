@@ -205,18 +205,15 @@ toLazyByteString = RB.toLazyByteString . unMessageBuilder
 -- Do not use this function unless you know what you're doing because it lets
 -- you assemble malformed protobuf `MessageBuilder`s.
 unsafeFromLazyByteString :: BL.ByteString -> MessageBuilder
-unsafeFromLazyByteString bytes' =
-    MessageBuilder { unMessageBuilder = RB.lazyByteString bytes' }
+unsafeFromLazyByteString = coerce RB.lazyByteString
 
 -- | Like 'unsafeFromLazyByteString' only for strict 'B.ByteString's.
 unsafeFromByteString :: B.ByteString -> MessageBuilder
-unsafeFromByteString bytes' =
-    MessageBuilder { unMessageBuilder = RB.byteString bytes' }
+unsafeFromByteString = coerce RB.byteString
 
 -- | Like 'unsafeFromLazyByteString' only for 'BS.ShortByteString's.
 unsafeFromShortByteString :: BS.ShortByteString -> MessageBuilder
-unsafeFromShortByteString bytes' =
-    MessageBuilder { unMessageBuilder = RB.shortByteString bytes' }
+unsafeFromShortByteString = coerce RB.shortByteString
 
 newtype MessageBoundedPrim w
   = MessageBoundedPrim { unMessageBoundedPrim :: Prim.BoundedPrim w }
