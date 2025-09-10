@@ -72,6 +72,7 @@ module Proto3.Wire.Decode
     , at
     , oneof
     , one
+    , optional
     , repeated
     , embedded
     , embedded'
@@ -569,13 +570,26 @@ oneof def parsersByFieldNum = Parser $ \input ->
 -- in the message, in compliance with the protobuf standard.
 --
 -- The protocol buffers specification specifies default values for
--- primitive types.
+-- primitive types for use when a field of that type is not @optional@.
 --
 -- For example:
 --
 -- > one float 0 :: Parser RawField Float
 one :: Parser RawPrimitive a -> a -> Parser RawField a
 one parser def = Parser (fmap (fromMaybe def) . traverse (runParser parser) . parsedField)
+
+-- | This turns a primitive parser into a field parser by keeping the last
+-- received value if there are any values and yielding 'Nothing' otherwise,
+-- as is appropriate for @optional@ fields.
+--
+-- Used to ensure that we return the last value with the given field number
+-- in the message, in compliance with the protobuf standard.
+--
+-- For example:
+--
+-- > optional float 0 :: Parser RawField (Maybe Float)
+optional :: Parser RawPrimitive a -> a -> Parser RawField (Maybe a)
+optional parser def = Parser (traverse (runParser parser) . parsedField)
 
 -- | Parse a repeated field, or an unpacked collection of primitives.
 --

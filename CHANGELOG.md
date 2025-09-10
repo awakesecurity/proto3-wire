@@ -1,9 +1,12 @@
+1.4.6
+  - Add a decoder combinator named `optional` for optional fields of primitive type.
+
 1.4.5
   - Add encoders for packed repeated fields that can iterate in
     reverse order for speed when practical and will predict size
     when it is inexpensive to do so.
-  - Add bytesIfNonempty, etaMessageBuilder, unsafeFromByteString,
-    unsafeFromShortByteString, repeatedMessageBuilder.
+  - Add `bytesIfNonempty`, `etaMessageBuilder`, `unsafeFromByteString`,
+    `unsafeFromShortByteString`, `repeatedMessageBuilder`.
 
 1.4.4
   - Support GHC 9.10
