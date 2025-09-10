@@ -80,7 +80,7 @@ module Proto3.Wire.Decode
     , zigZagDecode
     ) where
 
-import           Control.Applicative
+import           Control.Applicative hiding (optional)
 import           Control.Arrow (first)
 import           Control.Exception       ( Exception )
 import           Control.Monad           ( msum, foldM )
