@@ -244,8 +244,8 @@ roundTripTests = testGroup "Roundtrip tests"
                                                Nothing             -> mempty
                                         )
                                         (oneof Nothing
-                                               [ (fieldNumber 2, Just . TInt64  <$> one Decode.int64 0)
-                                               , (fieldNumber 3, Just . TString <$> one Decode.text mempty)
+                                               [ (fieldNumber 2, fmap TInt64  <$> optional Decode.int64)
+                                               , (fieldNumber 3, fmap TString <$> optional Decode.text)
                                                ]
                                         )
                            , roundTrip "oneof-last"
@@ -254,8 +254,8 @@ roundTripTests = testGroup "Roundtrip tests"
                                                Nothing             -> mempty
                                         )
                                         (oneof Nothing
-                                               [ (fieldNumber 2, Just . TInt64  <$> one Decode.int64 0)
-                                               , (fieldNumber 3, Just . TString <$> one Decode.text mempty)
+                                               [ (fieldNumber 2, fmap TInt64  <$> optional Decode.int64)
+                                               , (fieldNumber 3, fmap TString <$> optional Decode.text)
                                                ]
                                         )
                            ]
