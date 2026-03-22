@@ -1,5 +1,5 @@
 {-
-  Copyright 2020 Awake Networks
+  Copyright 2020-2026 Awake Networks
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -20,10 +20,12 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -111,7 +113,7 @@ import qualified Data.Vector.Generic
 import           Foreign                       ( Storable(..) )
 import           GHC.Exts                      ( Addr#, Int#, Proxy#,
                                                  RealWorld, State#, (+#),
-                                                 and#, inline, or#,
+                                                 and#, inline, oneShot, or#,
                                                  plusAddr#, plusWord#, proxy#,
                                                  uncheckedShiftRL# )
 import           GHC.IO                        ( IO(..) )
@@ -151,7 +153,7 @@ type WORD64 = Word#
 
 -- | Are we restricted to aligned writes only?
 data StoreMethod = StoreAligned | StoreUnaligned
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | 'StoreUnaligned' if the Cabal file defines @UNALIGNED_POKES@, which it
 -- does on architectures where that approach is known to be safe and faster
@@ -167,7 +169,7 @@ storeMethod = StoreAligned
 data ByteOrder
   = BigEndian     -- ^ Most significant byte first.
   | LittleEndian  -- ^ Least significant byte first.
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | The 'ByteOrder' native to the current architecture.
 --
@@ -304,10 +306,22 @@ unsafeLiftBoundedPrim = \w (BoundedPrim f) -> ensure# w f
 --
 -- (If GHC learns to consolidate address offsets automatically
 -- then we might be able to just use 'BoundedPrim' instead.)
-newtype FixedPrim (w :: Nat) = FixedPrim
-  ( Addr# -> Int# -> State# RealWorld -> Int# ->
-    (# Addr#, Int#, State# RealWorld #)
-  )
+newtype FixedPrim (w :: Nat) =
+  -- | If you directly use this constructor, without also using 'oneShot',
+  -- then the compiler may allocate a function object on the heap.  That
+  -- is almost never desirable, especially for primitive combinators.
+  MemoFixedPrim (Addr# -> Int# -> State# RealWorld -> Int# -> (# Addr#, Int#, State# RealWorld #))
+
+{-# COMPLETE FixedPrim #-}
+
+-- | This pattern synonym uses 'oneShot' as described in the comments for 'FixedPrim'.
+pattern FixedPrim ::
+  (Addr# -> Int# -> State# RealWorld -> Int# -> (# Addr#, Int#, State# RealWorld #)) ->
+  FixedPrim w
+pattern FixedPrim f <- MemoFixedPrim f
+  where
+    FixedPrim f = MemoFixedPrim
+      (oneShot (\v -> oneShot (\u -> oneShot (\s -> oneShot (\o -> f v u s o)))))
 
 type role FixedPrim nominal
 
@@ -343,12 +357,13 @@ instance PMEmpty FixedPrim 0
 
 -- | Executes the given fixed primitive and adjusts the current address.
 liftFixedPrim :: forall w . KnownNat w => FixedPrim w -> BoundedPrim w
-liftFixedPrim = \(FixedPrim f) -> BoundedPrim (BuildR (g f))
-  where
-    !(I# o) = - fromInteger (natVal' (proxy# :: Proxy# w))
-    g = \f v0 u0 s0 -> case f v0 u0 s0 o of
-      (# v1, u1, s1 #) -> (# plusAddr# v1 o, u1 +# o, s1 #)
-    {-# INLINE g #-}
+liftFixedPrim = \(FixedPrim f) ->
+  let !(I# o) = - fromInteger (natVal' (proxy# :: Proxy# w))
+      g = \v0 u0 s0 -> case f v0 u0 s0 o of
+        (# v1, u1, s1 #) -> (# plusAddr# v1 o, u1 +# o, s1 #)
+      {-# INLINE g #-}
+  in
+    BoundedPrim (BuildR g)
 {-# INLINE CONLIKE [1] liftFixedPrim #-}
 
 {-# RULES
@@ -404,11 +419,11 @@ type instance StorableWidth Double = 8
 
 -- | WARNING: The write may be unaligned; check 'storeMethod' first.
 primPoke :: Storable x => x -> FixedPrim (StorableWidth x)
-primPoke !x = FixedPrim p
-  where
-    p v u s0 o =
+primPoke !x = FixedPrim
+  ( \v u s0 o ->
       let IO q = pokeByteOff (Ptr v) (I# o) x
       in case q s0 of (# s1, (_ :: ()) #) -> (# v, u, s1 #)
+  )
 
 -- | Fixed-width primitive that writes a single byte as-is.
 word8 :: Word8 -> FixedPrim 1
@@ -584,24 +599,24 @@ floatNative = float systemByteOrder
 -- | Fixed-width primitive that writes a 'Float'
 -- in big-endian byte order.
 floatBE :: Float -> FixedPrim 4
-floatBE !x = FixedPrim g
-  where
-    g v u s0 o = case floatToWord32 (Ptr v) (I# u) x of
+floatBE !x = FixedPrim
+  ( \v u s0 o -> case floatToWord32 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word32BE y
           in f v u s1 o
+  )
 
 -- | Fixed-width primitive that writes a 'Float'
 -- in little-endian byte order.
 floatLE :: Float -> FixedPrim 4
-floatLE !x = FixedPrim g
-  where
-    g v u s0 o = case floatToWord32 (Ptr v) (I# u) x of
+floatLE !x = FixedPrim
+  ( \v u s0 o -> case floatToWord32 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word32LE y
           in f v u s1 o
+  )
 
 -- | Fixed-width primitive that writes a 'Double'
 -- in the specified byte order.
@@ -617,24 +632,24 @@ doubleNative = double systemByteOrder
 -- | Fixed-width primitive that writes a 'Double'
 -- in big-endian byte order.
 doubleBE :: Double -> FixedPrim 8
-doubleBE !x = FixedPrim g
-  where
-    g v u s0 o = case doubleToWord64 (Ptr v) (I# u) x of
+doubleBE !x = FixedPrim
+  ( \v u s0 o -> case doubleToWord64 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word64BE y
           in f v u s1 o
+  )
 
 -- | Fixed-width primitive that writes a 'Double'
 -- in little-endian byte order.
 doubleLE :: Double -> FixedPrim 8
-doubleLE !x = FixedPrim g
-  where
-    g v u s0 o = case doubleToWord64 (Ptr v) (I# u) x of
+doubleLE !x = FixedPrim
+  ( \v u s0 o -> case doubleToWord64 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word64LE y
           in f v u s1 o
+  )
 
 -- | Bounded-width primitive that writes a 'Char'
 -- according to the UTF-8 encoding.
@@ -872,3 +887,5 @@ unsafeReverseFoldMapFixedPrim f !n = etaBuildR $ \xs ->
   where
     w = fromInteger (natVal' (proxy# :: Proxy# w))
 {-# INLINE unsafeReverseFoldMapFixedPrim #-}
+{-# DEPRECATED unsafeReverseFoldMapFixedPrim
+                 "This function is no longer used by the rest of the proto3-wire package." #-}

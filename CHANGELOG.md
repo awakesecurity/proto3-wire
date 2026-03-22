@@ -1,3 +1,16 @@
+1.5.0
+  - As a breaking change, modify `Repeated` and `ToRepeated` to use `foldMap`-style
+    folds and thereby avoid allocation of `BuildR` functions on the heap.  Use
+    of `FoldR` seemed to force such allocation, even when using `oneShot`.
+  - Use `oneShot` in `BuildR` and `FixedPrim` to discourage allocation
+    of such function newtypes on the heap in other scenarios.
+  - Add `BuildM` and associated features for monadic building.
+  - Add `PackedField` to support packed fields in a uniform fashion,
+    and directly implement omission of such a field when it is empty.
+  - Add `embeddedIfNonempty` as a way to omit empty length-delimited fields.
+  - Deprecate `FoldR` and `unsafeReverseFoldMapFixedPrim` because
+    we have stopped using them and plan to remove them in future.
+
 1.4.6
   - Add a decoder combinator named `optional` for optional fields of primitive type.
 

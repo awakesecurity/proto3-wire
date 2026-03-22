@@ -1,5 +1,5 @@
 {-
-  Copyright 2020 Awake Networks
+  Copyright 2020-2026 Awake Networks
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -19,17 +19,34 @@
 
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE StandaloneKindSignatures #-}
+{-# LANGUAGE TupleSections #-}
 {-# LANGUAGE UnboxedTuples #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Proto3.Wire.Reverse.Internal
-    ( BuildR (..)
+    ( BuildM (BuildM)
+    , buildMToBuildR#
+    , buildRToBuildM#
+    , buildMToBuildR
+    , buildRToBuildM
+    , BuildR (BuildR)
     , BuildRState (..)
     , appendBuildR
     , foldlRVector
+    , toBuildM
+    , fromBuildM
     , toBuildR
     , fromBuildR
     , etaBuildR
+    , runBuildM
     , runBuildR
     , SealedState (SealedState, sealedSB, totalSB, stateVarSB, statePtrSB, recycledSB)
     , sealBuffer
@@ -40,7 +57,9 @@ module Proto3.Wire.Reverse.Internal
     , writeSpace
     , metaDataSize
     , metaDataAlign
+    , readUnused
     , withUnused
+    , readUsed
     , withTotal
     , readTotal
     , withLengthOf
@@ -56,6 +75,9 @@ module Proto3.Wire.Reverse.Internal
     , doubleToWord64
     ) where
 
+#if !MIN_VERSION_base(4,18,0)
+import           Control.Applicative           ( Applicative(..) )
+#endif
 import           Control.Exception             ( bracket )
 import           Control.Monad.Trans.State.Strict ( State, runState, state )
 import qualified Data.ByteString               as B
@@ -63,8 +85,10 @@ import qualified Data.ByteString.Internal      as BI
 import qualified Data.ByteString.Builder.Extra as BB
 import qualified Data.ByteString.Lazy          as BL
 import qualified Data.ByteString.Lazy.Internal as BLI
+import           Data.Coerce                   ( coerce )
 import           Data.IORef                    ( IORef, newIORef,
                                                  readIORef, writeIORef )
+import           Data.Kind                     ( Type )
 import qualified Data.Primitive                as P
 import qualified Data.Vector.Generic           as VG
 import           Data.Vector.Generic           ( Vector )
@@ -76,8 +100,8 @@ import           Foreign                       ( Storable(..),
                                                  deRefStablePtr )
 import           GHC.Exts                      ( Addr#, Int#, MutVar#,
                                                  RealWorld, StablePtr#, State#,
-                                                 addrToAny#, int2Addr#,
-                                                 touch# )
+                                                 TYPE, addrToAny#, int2Addr#,
+                                                 oneShot, touch# )
 import           GHC.ForeignPtr                ( ForeignPtr(..),
                                                  ForeignPtrContents(..) )
 import           GHC.IO                        ( IO(..) )
@@ -97,6 +121,90 @@ import           System.IO.Unsafe              ( unsafePerformIO )
 -- $setup
 -- >>> :set -XOverloadedStrings
 
+-- | Like 'BuildR' but provides a way for builders to
+-- return values monadically, not just emit octets.
+#if defined(__GLASGOW_HASKELL__) && 904 <= __GLASGOW_HASKELL__
+type BuildM :: forall {ar} . TYPE ar -> Type
+#else
+type BuildM :: forall ar . TYPE ar -> Type
+#endif
+newtype BuildM a
+  -- | If you directly use this constructor, without also using 'oneShot',
+  -- then the compiler may allocate a function object on the heap.  That
+  -- is almost never desirable, because a 'B.ByteString' holding output
+  -- of a builder tends to be a better way of memoizing an octet sequence.
+  -- Use the pattern synonym @BuildR@ instead.
+  = MemoBuildM (Addr# -> Int# -> State# RealWorld -> (# a, Addr#, Int#, State# RealWorld #))
+      -- It seems we cannot preserve register allocation between the arguments
+      -- and the returned components, even though we place the monadic return
+      -- where it might sometimes replace the implicit closure argument (when
+      -- its runtime representation uses one pointer register).
+      --
+      -- If GHC were to allocate registers right-to-left (instead of the current
+      -- left-to-right), and if it made sure to allocate the register that it
+      -- uses for closure arguments *last* when allocating return registers,
+      -- then we would stand a chance of not having to move the components of
+      -- the builder state between registers in many cases.  In this scenario,
+      -- @a -> b -> 'BuildR'@ and 'BuildR' could use the same registers for
+      -- state components as each other, and a non-inline return from one
+      -- could be used to call the other without moving state components.
+      --
+      -- Fortunately inlining erases this concern, and even where it
+      -- does not, register movements often combine with increments.
+      -- Also, we have arranged to put only the most frequently-used state
+      -- components into registers, which reduces the costs of both moves
+      -- and of save/reload pairs.  For example, our tracking of the total
+      -- bytes written involves metadata at the start of the current buffer
+      -- rather than an additional state register.
+  deriving stock (Functor)
+
+{-# COMPLETE BuildM #-}
+
+-- ^ The arguments to the builder function are:
+--
+--   1. The starting address of the *used* portion of the current buffer.
+--
+--   2. The number of *unused* bytes in the current buffer.
+--
+--   3. The state token (which does not consume any machine registers).
+--
+-- The components of the returned unboxed tuple are the same, except
+-- for the addition of the monadic return as the final component.
+pattern BuildM ::
+#if defined(__GLASGOW_HASKELL__) && 904 <= __GLASGOW_HASKELL__
+  forall {ar} (a :: TYPE ar) .
+#else
+  forall ar (a :: TYPE ar) .
+#endif
+  (Addr# -> Int# -> State# RealWorld -> (# a, Addr#, Int#, State# RealWorld #)) ->
+  BuildM a
+pattern BuildM f <- MemoBuildM f
+  where
+    BuildM f = MemoBuildM (oneShot (\v -> oneShot (\u -> oneShot (\s -> f v u s))))
+
+instance Applicative BuildM
+  where
+    pure a = BuildM (\v u s -> (# a, v, u, s #))
+
+    BuildM f <*> BuildM x = BuildM
+      ( \v0 u0 s0 -> case f v0 u0 s0 of
+          (# g, v1, u1, s1 #) -> case x v1 u1 s1 of
+            (# y, v2, u2, s2 #) -> (# g y, v2, u2, s2 #)
+      )
+
+    liftA2 f (BuildM x) (BuildM y) = BuildM
+      ( \v0 u0 s0 -> case x v0 u0 s0 of
+          (# w, v1, u1, s1 #) -> case y v1 u1 s1 of
+            (# z, v2, u2, s2 #) -> (# f w z, v2, u2, s2 #)
+      )
+
+instance Monad BuildM
+  where
+    BuildM x >>= k = BuildM
+      ( \v0 u0 s0 -> case x v0 u0 s0 of
+          (# w, v1, u1, s1 #) -> let BuildM g = k w in g v1 u1 s1
+      )
+
 -- | Writes bytes in reverse order, updating the current state.
 --
 -- It is the responsibility of the execution context and buffer
@@ -109,33 +217,92 @@ import           System.IO.Unsafe              ( unsafePerformIO )
 -- when associating to the left.  For example @'foldl' ('<>') 'mempty'@,
 -- though unless your 'foldl' iteration starts from the right there may
 -- still be issues.  Consider using `Proto3.Wire.Reverse.vectorBuildR`
--- instead of 'foldMap'.
-newtype BuildR = BuildR
+-- or `Proto3.Wire.Encode.Repeated.foldMapRepeated` instead of 'foldMap'.
+newtype BuildR = BuildRFromBuildM (BuildM (# #))
+
+{-# COMPLETE BuildR #-}
+
+-- | Converts a 'BuildM (# #)' into the equivalent 'BuildR' (currently without cost).
+buildMToBuildR# :: BuildM (# #) -> BuildR
+buildMToBuildR# = coerce
+
+-- | Converts a 'BuildR' into the equivalent 'BuildM (# #)' (currently without cost).
+buildRToBuildM# :: BuildR -> BuildM (# #)
+buildRToBuildM# = coerce
+
+-- | Like 'buildMToBuildR#' but uses a lifted unit type.
+--
+-- Ignores any distinction between terminating and non-terminating unit values.
+buildMToBuildR :: BuildM () -> BuildR
+buildMToBuildR = coerce
+  ( ( \f -> oneShot
+        (\v0 -> oneShot
+          (\u0 -> oneShot
+            (\s0 -> case f v0 u0 s0 of
+                (# _ :: (), v1, u1, s1 #) -> (# (# #), v1, u1, s1 #)
+            )
+          )
+        )
+    )
+    :: (Addr# -> Int# -> State# RealWorld -> (# (), Addr#, Int#, State# RealWorld #)) ->
+       (Addr# -> Int# -> State# RealWorld -> (# (# #), Addr#, Int#, State# RealWorld #))
+  )
+
+-- | Like 'buildRToBuildM#' but uses a lifted unit type.
+--
+-- The returned unit value is always terminating.
+buildRToBuildM :: BuildR -> BuildM ()
+buildRToBuildM = coerce
+  ( ( \f -> oneShot
+        (\v0 -> oneShot
+          (\u0 -> oneShot
+            (\s0 -> case f v0 u0 s0 of
+               (# (# #), v1, u1, s1 #) -> (# (), v1, u1, s1 #)
+            )
+          )
+        )
+    )
+    :: (Addr# -> Int# -> State# RealWorld -> (# (# #), Addr#, Int#, State# RealWorld #)) ->
+       (Addr# -> Int# -> State# RealWorld -> (# (), Addr#, Int#, State# RealWorld #))
+  )
+
+-- | This pattern synonym uses 'oneShot' as described in the comments for 'MemoBuildM'.
+pattern BuildR ::
+  (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #)) ->
+  BuildR
+pattern BuildR f <- (eliminateBuildR -> f)
+  where
+    BuildR f = introduceBuildR f
+
+introduceBuildR ::
+  (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #)) ->
+  BuildR
+introduceBuildR = coerce
+  ( \(f :: (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #))) -> oneShot
+      (\v0 -> oneShot
+        (\u0 -> oneShot
+          (\s0 -> case f v0 u0 s0 of
+              (# v1, u1, s1 #) -> (# (# #), v1, u1, s1 #)
+          )
+        )
+      )
+  )
+{-# INLINE introduceBuildR #-}
+
+eliminateBuildR ::
+  BuildR ->
   (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #))
-    -- ^ Both the builder arguments and the returned values are:
-    --
-    --   1. The starting address of the *used* portion of the current buffer.
-    --
-    --   2. The number of *unused* bytes in the current buffer.
-    --
-    --   3. The state token (which does not consume any machine registers).
-    --
-    -- It seems we cannot preserve register allocation between the arguments
-    -- and the returned components, even by including padding.  If GHC were to
-    -- allocate registers right-to-left (instead of the current left-to-right),
-    -- and if it made sure to allocate the register that it uses for closure
-    -- arguments *last* when allocating return registers, then we would stand
-    -- a chance of not having to move the state components between registers.
-    -- That way @a -> b -> 'BuildR'@ and 'BuildR' would use the same registers
-    -- for state components as each other, and a non-inline return from one
-    -- could be used to call the other without moving state components.
-    --
-    -- But in many cases register movements combine with increments.
-    -- Also, we have arranged to put only the most frequently-used state
-    -- components into registers, which reduces the costs of both moves
-    -- and of save/reload pairs.  For example, our tracking of the total
-    -- bytes written involves metadata at the start of the current buffer
-    -- rather than an additional state register.
+eliminateBuildR = coerce
+  ( \(f :: (Addr# -> Int# -> State# RealWorld -> (# (# #), Addr#, Int#, State# RealWorld #))) -> oneShot
+      (\v0 -> oneShot
+        (\u0 -> oneShot
+          (\s0 -> case f v0 u0 s0 of
+              (# (# #), v1, u1, s1 #) -> (# v1, u1, s1 #)
+          )
+        )
+      )
+  )
+{-# INLINE eliminateBuildR #-}
 
 instance Semigroup BuildR
   where
@@ -179,6 +346,16 @@ foldlRVector f = \z v -> VG.foldr (flip f) z (VG.reverse v)
   -- the rewrite rules in the vector library the vector is never actually
   -- allocated, and instead we directly stream elements from right to left.
 {-# INLINE foldlRVector #-}
+
+toBuildM :: (Ptr Word8 -> Int -> IO (Ptr Word8, Int, a)) -> BuildM a
+toBuildM f =
+  BuildM $ \v0 u0 s0 ->
+    let IO g = f (Ptr v0) (I# u0) in
+    case g s0 of (# s1, (Ptr v1, I# u1, a) #) -> (# a, v1, u1, s1 #)
+
+fromBuildM :: BuildM a -> (Ptr Word8 -> Int -> IO (Ptr Word8, Int, a))
+fromBuildM (BuildM f) (Ptr v0) (I# u0) =
+  IO $ \s0 -> case f v0 u0 s0 of (# a, v1, u1, s1 #) -> (# s1, (Ptr v1, I# u1, a) #)
 
 toBuildR :: (Ptr Word8 -> Int -> IO (Ptr Word8, Int)) -> BuildR
 toBuildR f =
@@ -298,7 +475,8 @@ readSpace m = peekByteOff m spaceOffset
 writeSpace :: Ptr MetaData -> Int -> IO ()
 writeSpace m = pokeByteOff m spaceOffset
 
--- | The arguments are the same as the 'BuildR' arguments.
+-- | Reads the total bytes used across all buffers.
+-- The arguments are the same as the 'BuildR' arguments.
 readTotal :: Ptr Word8 -> Int -> IO Int
 readTotal v unused = do
   -- Because we do not wish to update a record of the total
@@ -480,8 +658,25 @@ sealBuffer# addr unused s0 =
             else finish (B.copy untrimmed) (Just buffer)
 
 -- | Like `Proto3.Wire.Reverse.toLazyByteString` but also
+-- reports the monadic return and the total length of the lazy
+-- 'BL.ByteString', which is computed as a side effect of encoding.
+--
+-- See also 'runBuildR'.
+runBuildM :: BuildM a -> (Int, BL.ByteString, a)
+runBuildM f = unsafePerformIO $ do
+  stateVar <- newIORef undefined   -- undefined only until 'newBuffer'
+  bracket (newStablePtr stateVar) freeStablePtr $ \statePtr -> do
+    let u0 = smallChunkSize
+    v0 <- newBuffer BL.empty 0 stateVar statePtr u0
+    (v1, u1, a) <- fromBuildM f v0 u0
+    SealedState { sealedSB = bytes, totalSB = total } <- sealBuffer v1 u1
+    pure (total, bytes, a)
+
+-- | Like `Proto3.Wire.Reverse.toLazyByteString` but also
 -- returns the total length of the lazy 'BL.ByteString',
 -- which is computed as a side effect of encoding.
+--
+-- See also 'runBuildM'.
 runBuildR :: BuildR -> (Int, BL.ByteString)
 runBuildR f = unsafePerformIO $ do
   stateVar <- newIORef undefined   -- undefined only until 'newBuffer'
@@ -492,9 +687,19 @@ runBuildR f = unsafePerformIO $ do
     SealedState { sealedSB = bytes, totalSB = total } <- sealBuffer v1 u1
     pure (total, bytes)
 
+-- | Reads the number of unused bytes in the current buffer.
+-- Note that reallocation provides more unused bytes.
+readUnused :: BuildM Int
+readUnused = BuildM (\v u s -> (# I# u, v, u, s #))
+
 -- | First reads the number of unused bytes in the current buffer.
+-- Note that reallocation provides more unused bytes.
 withUnused :: (Int -> BuildR) -> BuildR
 withUnused f = toBuildR $ \v u -> fromBuildR (f u) v u
+
+-- | Reads the total bytes used across all buffers.
+readUsed :: BuildM Int
+readUsed = toBuildM (\v u -> (v, u, ) <$> readTotal v u)
 
 -- | First reads the number of bytes previously written.
 withTotal :: (Int -> BuildR) -> BuildR
@@ -695,10 +900,12 @@ ensure :: Int -> BuildR -> BuildR
 ensure (I# required) f = ensure# required f
 
 ensure# :: Int# -> BuildR -> BuildR
-ensure# required (BuildR f) = BuildR $ \v u s ->
-  if I# required <= I# u
-    then f v u s
-    else let BuildR g = BuildR f <> reallocate# required in g v u s
+ensure# required (BuildR f) = BuildR $ \v0 u0 s0 ->
+  let BuildR g
+        | I# required <= I# u0 = mempty
+        | otherwise = reallocate# required
+  in case g v0 u0 s0 of
+    (# v1, u1, s1 #) -> f v1 u1 s1
 
 -- | ASSUMES that the specified number of bytes is both nonnegative and
 -- less than or equal to the number of unused bytes in the current buffer,

@@ -1,13 +1,13 @@
 cabal-version: >=1.10
 
 name:         proto3-wire
-version:      1.4.6
+version:      1.5.0
 synopsis:     A low-level implementation of the Protocol Buffers (version 3) wire format
 license:      Apache-2.0
 license-file: LICENSE
 author:       Arista Networks <opensource@awakesecurity.com>
 maintainer:   Arista Networks <opensource@awakesecurity.com>
-copyright:    2017 Awake Security, 2021 Arista Networks
+copyright:    2017 Awake Security, 2021-2026 Arista Networks
 category:     Codec
 build-type:   Simple
 
@@ -27,6 +27,8 @@ library
     -O2
     -fobject-code
     -Wall
+    -Wmissing-deriving-strategies
+    -Wunused-packages
 
   -- Add any other architectures on which an unaligned poke of a multibyte
   -- value would succeed and be faster than writing the bytes one by one.
@@ -47,7 +49,6 @@ library
     , text >= 0.2 && <2.2
     , text-short ==0.1.*
     , transformers >=0.5.6.2 && <0.7
-    , unordered-containers >= 0.1.0.0 && <0.3
     , vector >=0.12.0.2 && <0.14
     , QuickCheck >=2.8 && <3.0
     , word-compat >= 0.0.6
@@ -100,6 +101,8 @@ benchmark bench
   ghc-options:
     -O2
     -Wall
+    -Wmissing-deriving-strategies
+    -Wunused-packages
 
   build-depends:
       base >= 4 && < 5

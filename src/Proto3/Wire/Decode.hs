@@ -25,6 +25,7 @@
 {-# LANGUAGE BangPatterns               #-}
 {-# LANGUAGE CPP                        #-}
 {-# LANGUAGE DeriveFunctor              #-}
+{-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE LambdaCase                 #-}
 {-# LANGUAGE OverloadedStrings          #-}
 {-# LANGUAGE PatternGuards              #-}
@@ -124,7 +125,7 @@ data ParsedField = VarintField Word64
                  | Fixed32Field B.ByteString
                  | Fixed64Field B.ByteString
                  | LengthDelimitedField B.ByteString
-    deriving (Show, Eq)
+    deriving stock (Show, Eq)
 
 -- | Convert key-value pairs to a map of keys to a sequence of values with that
 -- key, in their reverse occurrence order.
@@ -257,7 +258,7 @@ data ParseError =
                 -- embedded message.
                 EmbeddedError Text
                               (Maybe ParseError)
-    deriving (Show, Eq, Ord)
+    deriving stock (Show, Eq, Ord)
 
 -- | This library does not use this instance, but it is provided for convenience,
 -- so that 'ParseError' may be used with functions like `throwIO`
@@ -277,7 +278,7 @@ instance Exception ParseError
 -- 'Parser's can be combined using the 'Applicative', 'Monad' and 'Alternative'
 -- instances.
 newtype Parser input a = Parser { runParser :: input -> Either ParseError a }
-    deriving Functor
+    deriving stock Functor
 
 instance Applicative (Parser input) where
     pure = Parser . const . pure

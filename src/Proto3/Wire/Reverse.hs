@@ -1,5 +1,5 @@
 {-
-  Copyright 2020 Awake Networks
+  Copyright 2020-2026 Awake Networks
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -28,6 +28,8 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Proto3.Wire.Reverse
     ( -- * `BuildR` type
@@ -105,13 +107,14 @@ import qualified Data.Text.Short               as TS
 import           Data.Vector.Generic           ( Vector )
 import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           Foreign                       ( castPtr, copyBytes )
-import           GHC.Exts                      ( Addr#, Int(..), Int# )
+import           GHC.Exts                      ( Addr#, Int(..), Int#, Proxy#, proxy# )
 #if !MIN_VERSION_bytestring(0,11,0)
 import           GHC.Exts                      ( plusAddr# )
 #endif
 import           GHC.ForeignPtr                ( ForeignPtr(..), ForeignPtrContents )
-import           GHC.TypeLits                  ( KnownNat )
-import           Proto3.Wire.Encode.Repeated   ( Repeated(..), ToRepeated(..) )
+import           GHC.TypeLits                  ( KnownNat, natVal' )
+import           Proto3.Wire.Encode.Repeated   ( ToRepeated, foldMapRepeated,
+                                                 predictRepeated, toRepeated )
 import           Proto3.Wire.Reverse.Internal
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 
@@ -871,7 +874,7 @@ vectorBuildR f = etaBuildR (foldlRVector (\acc x -> acc <> f x) mempty)
 --
 -- See also: 'repeatedFixedPrimR', 'vectorBuildR'
 repeatedBuildR :: ToRepeated c BuildR => c -> BuildR
-repeatedBuildR = etaBuildR (foldr (flip (<>)) mempty . reverseRepeated . toRepeated)
+repeatedBuildR = etaBuildR (foldMapRepeated id)
 {-# INLINE repeatedBuildR #-}
 
 -- | Concatenates the given fixed-width primitives, iterating right to left where practical
@@ -883,12 +886,13 @@ repeatedBuildR = etaBuildR (foldr (flip (<>)) mempty . reverseRepeated . toRepea
 -- [42,67]
 --
 -- See also: 'repeatedBuildR'
-repeatedFixedPrimR :: (ToRepeated c (Prim.FixedPrim w), KnownNat w) => c -> BuildR
-repeatedFixedPrimR = etaBuildR $ \c ->
-  let ReverseRepeated prediction prims = toRepeated c in
-  case prediction of
-    Nothing -> foldr (\p a -> a <> Prim.liftBoundedPrim (Prim.liftFixedPrim p)) mempty prims
-    Just count -> Prim.unsafeReverseFoldMapFixedPrim id count prims
+repeatedFixedPrimR :: forall c w . (ToRepeated c (Prim.FixedPrim w), KnownNat w) => c -> BuildR
+repeatedFixedPrimR = etaBuildR $ \(toRepeated -> xs) -> case predictRepeated xs of
+  Nothing ->
+    foldMapRepeated (Prim.liftBoundedPrim . Prim.liftFixedPrim) xs
+  Just c ->
+    let w = fromInteger (natVal' (proxy# :: Proxy# w))
+    in ensure (w * c) (foldMapRepeated (Prim.unsafeBuildBoundedPrim . Prim.liftFixedPrim) xs)
 {-# INLINE repeatedFixedPrimR #-}
 
 -- | Exported for testing purposes only.
