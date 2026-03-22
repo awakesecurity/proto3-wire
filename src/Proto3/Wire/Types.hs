@@ -1,6 +1,7 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveLift                 #-}
+{-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 {-
@@ -44,7 +45,8 @@ import           Test.QuickCheck            ( Arbitrary(..), choose )
 -- left to other, higher-level libraries.
 newtype FieldNumber = FieldNumber
   { getFieldNumber :: Word64 }
-  deriving (Bounded, Data, Enum, Eq, Generic, Hashable, Lift, NFData, Num, Ord)
+  deriving stock (Data, Generic, Lift)
+  deriving newtype (Bounded, Enum, Eq, Hashable, NFData, Num, Ord)
 
 instance Show FieldNumber where
   show (FieldNumber n) = show n
@@ -64,4 +66,4 @@ data WireType
   | Fixed32
   | Fixed64
   | LengthDelimited
-  deriving (Bounded, Data, Enum, Eq, Generic, Lift, Ord, Show)
+  deriving stock (Bounded, Data, Enum, Eq, Generic, Lift, Ord, Show)

@@ -20,10 +20,11 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE UnboxedTuples #-}
 
 module Proto3.Wire.Reverse.Internal
-    ( BuildR (..)
+    ( BuildR (BuildR, ..)
     , BuildRState (..)
     , appendBuildR
     , foldlRVector
@@ -77,7 +78,7 @@ import           Foreign                       ( Storable(..),
 import           GHC.Exts                      ( Addr#, Int#, MutVar#,
                                                  RealWorld, StablePtr#, State#,
                                                  addrToAny#, int2Addr#,
-                                                 touch# )
+                                                 oneShot, touch# )
 import           GHC.ForeignPtr                ( ForeignPtr(..),
                                                  ForeignPtrContents(..) )
 import           GHC.IO                        ( IO(..) )
@@ -110,8 +111,13 @@ import           System.IO.Unsafe              ( unsafePerformIO )
 -- though unless your 'foldl' iteration starts from the right there may
 -- still be issues.  Consider using `Proto3.Wire.Reverse.vectorBuildR`
 -- instead of 'foldMap'.
-newtype BuildR = BuildR
-  (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #))
+newtype BuildR
+  -- | If you directly use this constructor, without also using 'oneShot',
+  -- then the compiler may allocate a function object on the heap.  That
+  -- is almost never desirable, because a 'B.ByteString' holding output
+  -- of a builder tends to be a better way of memoizing an octet sequence.
+  -- Use the pattern synonym @BuildR@ instead.
+  = MemoBuildR (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #))
     -- ^ Both the builder arguments and the returned values are:
     --
     --   1. The starting address of the *used* portion of the current buffer.
@@ -136,6 +142,16 @@ newtype BuildR = BuildR
     -- and of save/reload pairs.  For example, our tracking of the total
     -- bytes written involves metadata at the start of the current buffer
     -- rather than an additional state register.
+
+{-# COMPLETE BuildR #-}
+
+-- | This pattern synonym uses 'oneShot' as described in the comments for 'BuildR'.
+pattern BuildR ::
+  (Addr# -> Int# -> State# RealWorld -> (# Addr#, Int#, State# RealWorld #)) ->
+  BuildR
+pattern BuildR f <- MemoBuildR f
+  where
+    BuildR f = MemoBuildR (oneShot (\v -> oneShot (\u -> oneShot (\s -> f v u s))))
 
 instance Semigroup BuildR
   where

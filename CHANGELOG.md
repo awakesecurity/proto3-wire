@@ -1,3 +1,12 @@
+1.5.0
+  - Modify `Repeated` to use a `foldMap`-style fold to avoid
+    allocation of `BuildR` functions on the heap.  Use of `FoldR`
+    seemed to force such allocation, even when using `oneShot`.
+  - Use `oneShot` in `BuildR` to discourage allocation of such
+    function newtypes on the heap.
+  - Deprecate `FoldR` and `unsafeReverseFoldMapFixedPrim` because
+    we have stopped using them and plan to remove them in future.
+
 1.4.6
   - Add a decoder combinator named `optional` for optional fields of primitive type.
 

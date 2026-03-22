@@ -20,6 +20,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
@@ -151,7 +152,7 @@ type WORD64 = Word#
 
 -- | Are we restricted to aligned writes only?
 data StoreMethod = StoreAligned | StoreUnaligned
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | 'StoreUnaligned' if the Cabal file defines @UNALIGNED_POKES@, which it
 -- does on architectures where that approach is known to be safe and faster
@@ -167,7 +168,7 @@ storeMethod = StoreAligned
 data ByteOrder
   = BigEndian     -- ^ Most significant byte first.
   | LittleEndian  -- ^ Least significant byte first.
-  deriving (Eq, Show)
+  deriving stock (Eq, Show)
 
 -- | The 'ByteOrder' native to the current architecture.
 --
@@ -872,3 +873,5 @@ unsafeReverseFoldMapFixedPrim f !n = etaBuildR $ \xs ->
   where
     w = fromInteger (natVal' (proxy# :: Proxy# w))
 {-# INLINE unsafeReverseFoldMapFixedPrim #-}
+{-# DEPRECATED unsafeReverseFoldMapFixedPrim
+                 "This function is no longer used by the rest of the proto3-wire package." #-}

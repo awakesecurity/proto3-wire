@@ -14,11 +14,13 @@
   limitations under the License.
 -}
 
+{-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE ViewPatterns #-}
 
 {-# OPTIONS_GHC -Wno-warnings-deprecations #-}
 
@@ -55,13 +57,17 @@ import qualified Data.Vector.Unboxed   as VU
 import           Data.Word             ( Word8, Word64 )
 import           Foreign               ( sizeOf )
 import qualified GHC.Exts
+import           Text.Read             ( readEither )
 
 import           Proto3.Wire
-import           Proto3.Wire.FoldR     ( FoldR )
 import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Reverse   as Reverse
 import qualified Proto3.Wire.Encode    as Encode
-import           Proto3.Wire.Encode.Repeated ( Repeated(..), ToRepeated(..), nullRepeated )
+import           Proto3.Wire.Encode.Repeated
+                                       ( Repeated(..), ToRepeated(..), Unary(..),
+                                         foldMapLUnaryCount, foldMapRUnaryCount,
+                                         forwardRepeatedFold, mapRepeated, nullRepeated,
+                                         reverseMapRepeated, reverseRepeated, reverseRepeatedFold )
 import qualified Proto3.Wire.Decode    as Decode
 
 import qualified Test.DocTest
@@ -97,7 +103,7 @@ tests = testGroup "Tests" [ roundTripTests
                           ]
 
 data StringOrInt64 = TString T.Text | TInt64 Int64
-    deriving (Show,Eq)
+    deriving stock (Eq, Show)
 
 instance QC.Arbitrary StringOrInt64 where
     arbitrary = QC.oneof [ TString . T.pack <$> QC.arbitrary, TInt64 <$> QC.arbitrary ]
@@ -801,72 +807,235 @@ packedDoublesV_large = HU.testCase "Large packedDoublesV" $ do
                              (BL.toStrict encoded)
   HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
 
-data ExpectedCountPrediction c = NoCP | CorrectCP | SameCP (c -> Maybe Int)
+data ExpectedCountPrediction c = UnaryCP | BinaryCP | SameCP (c -> Either Unary Int)
 
 toRepeatedTests :: TestTree
 toRepeatedTests = testGroup "ToRepeated"
-  [ test_nullRepeated
-  , test_ToRepeated (SameCP countRepeated) genRepeated (reverse . toList . reverseRepeated)
-  , test_ToRepeated CorrectCP QC.arbitrary (toList @Identity @Word8)
-  , test_ToRepeated NoCP QC.arbitrary (id @[Word8])
-  , test_ToRepeated NoCP ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
-  , test_ToRepeated CorrectCP (fmap V.fromList QC.arbitrary) (V.toList @Word8)
-  , test_ToRepeated CorrectCP (fmap VS.fromList QC.arbitrary) (VS.toList @Word8)
-  , test_ToRepeated CorrectCP (fmap VU.fromList QC.arbitrary) (VU.toList @Word8)
-  , test_ToRepeated CorrectCP QC.arbitrary (toList @Data.Sequence.Seq @Word8)
-  , test_ToRepeated CorrectCP QC.arbitrary (Data.Set.toAscList @Word8)
-  , test_ToRepeated NoCP QC.arbitrary Data.IntSet.toAscList
-  , test_ToRepeated CorrectCP QC.arbitrary (Data.Map.Lazy.toAscList @Int8 @Word8)
-  , test_ToRepeated NoCP QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
+  [ test_Monoid_Unary
+  , test_foldMapRUnaryCount
+  , test_foldMapLUnaryCount
+  , test_Eq_Repeated
+  , test_IsList_Repeated
+  , test_Read_Repeated
+  , test_Show_Repeated
+  , test_nullRepeated
+  , test_mapRepeated
+  , test_reverseRepeated
+  , test_RULES_reverseRepeated_reverseRepeated
+  , test_RULES_mapRepeated_reverseRepeated
+  , test_reverseMapRepeated
+  , test_forwardRepeatedFold
+  , test_reverseRepeatedFold
+  , test_ToRepeated (SameCP countRepeated) (fmap snd genRepeated) GHC.Exts.toList
+  , test_ToRepeated BinaryCP QC.arbitrary (toList @Identity @Word8)
+  , test_ToRepeated UnaryCP QC.arbitrary (id @[Word8])
+  , test_ToRepeated UnaryCP ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
+  , test_ToRepeated BinaryCP (fmap V.fromList QC.arbitrary) (V.toList @Word8)
+  , test_ToRepeated BinaryCP (fmap VS.fromList QC.arbitrary) (VS.toList @Word8)
+  , test_ToRepeated BinaryCP (fmap VU.fromList QC.arbitrary) (VU.toList @Word8)
+  , test_ToRepeated BinaryCP QC.arbitrary (toList @Data.Sequence.Seq @Word8)
+  , test_ToRepeated BinaryCP QC.arbitrary (Data.Set.toAscList @Word8)
+  , test_ToRepeated UnaryCP QC.arbitrary Data.IntSet.toAscList
+  , test_ToRepeated BinaryCP QC.arbitrary (Data.Map.Lazy.toAscList @Int8 @Word8)
+  , test_ToRepeated UnaryCP QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
   ]
-  where
-    genRepeated :: QC.Gen (Repeated Word8)
-    genRepeated = do
-      predict <- QC.arbitrary
-      xs <- QC.arbitrary
-      pure ReverseRepeated
-        { countRepeated = if predict then Just (length xs) else Nothing
-        , reverseRepeated = GHC.Exts.fromList xs
-        }
 
-    test_nullRepeated :: TestTree
-    test_nullRepeated =
-      QC.testProperty "nullRepeated" $
-        QC.forAll genRepeated $ \c ->
-          nullRepeated c === null (reverseRepeated c)
+unaryLength :: Unary -> Int
+unaryLength Zero = 0
+unaryLength (Succ u) = 1 + unaryLength u
 
-    test_ToRepeated ::
-      forall c e .
-      ( ToRepeated c e
-      , Show c
-      , Typeable c
-      , Eq e
-      , Show e
-      ) =>
-      ExpectedCountPrediction c ->
-      (QC.Gen c) ->
-      (c -> [e]) ->
-      TestTree
-    test_ToRepeated expectedCP gen cToList =
-      let cRep = typeRep (Proxy :: Proxy c) in
-      QC.testProperty (showString "toRepeated @(" $ showsTypeRep cRep ")") $
-        QC.forAll gen $ \(c :: c) ->
-          let es :: [e]
-              es = cToList c
+test_Monoid_Unary :: TestTree
+test_Monoid_Unary =
+  QC.testProperty "Monoid Unary" $
+    QC.forAll QC.arbitrary $ \(xs :: [()]) ->
+    QC.forAll QC.arbitrary $ \(ys :: [()]) ->
+      foldr (const Succ) Zero xs <> foldr (const Succ) Zero ys ===
+        foldr (const Succ) Zero (xs ++ ys)
+      QC..&&.
+      mempty === Zero
 
-              prediction :: Maybe Int
-              reversed :: FoldR e
-              ReverseRepeated prediction reversed = toRepeated c
-          in
-            QC.counterexample "correctly reversed elements" (toList reversed === reverse es)
+test_foldMapRUnaryCount :: TestTree
+test_foldMapRUnaryCount =
+  QC.testProperty "foldMapRUnaryCount" $
+    QC.forAll QC.arbitrary $ \(xs :: [()]) ->
+      unaryLength (foldMapRUnaryCount xs) === length xs
+
+test_foldMapLUnaryCount :: TestTree
+test_foldMapLUnaryCount =
+  QC.testProperty "foldMapLUnaryCount" $
+    QC.forAll QC.arbitrary $ \(xs :: [()]) ->
+      unaryLength (foldMapLUnaryCount xs) === length xs
+
+-- | Generates a list of words and a 'Repeated' containing those same words in the same
+-- order, sometimes with a length prediction and sometimes without a length prediction.
+genRepeated :: QC.Gen ([Word8], Repeated Word8)
+genRepeated = do
+  predict <- QC.arbitrary
+  xs <- QC.arbitrary
+  pure ( xs
+       , MkRepeated
+           { countRepeated = if predict then Right (length xs) else Left (foldr (const Succ) Zero xs)
+           , foldMapRepeated = \f -> foldMap @[] f xs
+           }
+       )
+
+test_Eq_Repeated :: TestTree
+test_Eq_Repeated =
+  QC.testProperty "Eq (Repeated Word8)" $
+    QC.forAll genRepeated $ \(xs, x) ->
+    QC.forAll genRepeated $ \(ys, y) ->
+      (x == y) === (xs == ys)
+
+test_IsList_Repeated :: TestTree
+test_IsList_Repeated =
+  QC.testProperty "IsList (Repeated Word8)" $
+    QC.forAll genRepeated $ \(xs, x) ->
+      GHC.Exts.toList x === xs
+      QC..&&.
+      ( case GHC.Exts.fromList xs of
+          r@(MkRepeated count f) ->
+            f pure === xs
             QC..&&.
-            QC.counterexample "correct count prediction if any"
-              (all @Maybe (== length es) prediction)
+            ( case count of
+                Left u -> unaryLength u === length xs
+                Right n -> n === length xs
+            )
             QC..&&.
-            case expectedCP of
-              NoCP ->
-                QC.counterexample "no count prediction" (prediction === Nothing)
-              CorrectCP ->
-                QC.counterexample "correct count prediction" (prediction === Just (length es))
-              SameCP expected ->
-                QC.counterexample "unchanged count prediction" (prediction === expected c)
+            r === x  -- this check is redundant with other checks
+      )
+      QC..&&.
+      ( case GHC.Exts.fromListN (length xs) xs of
+          r@(MkRepeated count f) ->
+            f pure === xs
+            QC..&&.
+            count === Right (length xs)
+            QC..&&.
+            r === x  -- this check is redundant with other checks
+      )
+
+test_Show_Repeated :: TestTree
+test_Show_Repeated =
+  QC.testProperty "Show (Repeated Word8)" $
+    QC.forAll genRepeated $ \(xs, x) ->
+    QC.forAll (QC.choose (0, 12)) $ \d ->
+      showsPrec d x "xyz" === showsPrec d xs "xyz"
+
+test_Read_Repeated :: TestTree
+test_Read_Repeated =
+  QC.testProperty "Show (Repeated Word8)" $
+    QC.forAll genRepeated $ \(xs, x) ->
+      readEither (show xs) === Right x  -- can consume expected form
+      QC..&&.
+      readEither (show x) === Right x  -- round trip with 'show'
+
+test_nullRepeated :: TestTree
+test_nullRepeated =
+  QC.testProperty "nullRepeated" $
+    QC.forAll genRepeated $ \(xs, x) ->
+      nullRepeated x === null xs
+
+test_mapRepeated :: TestTree
+test_mapRepeated =
+  QC.testProperty "mapRepeated" $
+    QC.forAll genRepeated $ \(xs, x) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      GHC.Exts.toList (mapRepeated (pivot -) x) === map (pivot -) xs
+
+test_reverseRepeated :: TestTree
+test_reverseRepeated =
+  QC.testProperty "reverseRepeated" $
+    QC.forAll genRepeated $ \(xs, x) ->
+      GHC.Exts.toList (reverseRepeated x) === reverse xs
+
+-- | We wish to test that our rewrite rules are justified.
+-- While doing so we need to avoid invoking those rules,
+-- because such an invocation would cause the test to
+-- succeed automatically.  Therefore we use a NOINLINE
+-- wrapper around the function in question.
+reverseRepeated_NORULES :: Repeated e -> Repeated e
+reverseRepeated_NORULES = reverseRepeated
+{-# NOINLINE reverseRepeated_NORULES #-}
+
+test_RULES_reverseRepeated_reverseRepeated :: TestTree
+test_RULES_reverseRepeated_reverseRepeated =
+  QC.testProperty "RULES reverseRepeated/reverseRepeated" $
+    QC.forAll genRepeated $ \(xs, x) ->
+      GHC.Exts.toList (reverseRepeated_NORULES (reverseRepeated_NORULES x)) === xs
+
+-- | We wish to test that our rewrite rules are justified.
+-- While doing so we need to avoid invoking those rules,
+-- because such an invocation would cause the test to
+-- succeed automatically.  Therefore we use a NOINLINE
+-- wrapper around the function in question.
+mapRepeated_NORULES :: ToRepeated c e => (e -> a) -> c -> Repeated a
+mapRepeated_NORULES = mapRepeated
+{-# NOINLINE mapRepeated_NORULES #-}
+
+test_RULES_mapRepeated_reverseRepeated :: TestTree
+test_RULES_mapRepeated_reverseRepeated =
+  QC.testProperty "RULES mapRepeated/reverseRepeated" $
+    QC.forAll genRepeated $ \(xs, x) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      GHC.Exts.toList (mapRepeated_NORULES (pivot -) (reverseRepeated_NORULES x)) ===
+        GHC.Exts.toList (reverseRepeated_NORULES (mapRepeated_NORULES (pivot -) x))
+
+test_reverseMapRepeated :: TestTree
+test_reverseMapRepeated =
+  QC.testProperty "reverseMapRepeated" $
+    QC.forAll genRepeated $ \(xs, x) ->
+    QC.forAll QC.arbitrary $ \((1 Bits..|.) -> factor) ->
+      GHC.Exts.toList (reverseMapRepeated (factor *) x) === reverse (map (factor *) xs)
+
+test_forwardRepeatedFold :: TestTree
+test_forwardRepeatedFold =
+  QC.testProperty "forwardRepeatedFold" $
+    QC.forAll QC.arbitrary $ \(xs :: [Word8]) ->
+      forwardRepeatedFold xs pure === xs
+
+test_reverseRepeatedFold :: TestTree
+test_reverseRepeatedFold =
+  QC.testProperty "reverseRepeatedFold" $
+    QC.forAll QC.arbitrary $ \(xs :: [Word8]) ->
+      reverseRepeatedFold xs pure === reverse xs
+
+test_ToRepeated ::
+  forall c e .
+  ( ToRepeated c e
+  , Show c
+  , Typeable c
+  , Eq e
+  , Show e
+  ) =>
+  ExpectedCountPrediction c ->
+  (QC.Gen c) ->
+  (c -> [e]) ->
+  TestTree
+test_ToRepeated expectedCP gen cToList =
+  let cRep = typeRep (Proxy :: Proxy c) in
+  QC.testProperty (showString "toRepeated @(" $ showsTypeRep cRep ")") $
+    QC.forAll gen $ \(c :: c) ->
+      let es :: [e]
+          es = cToList c
+
+          count :: Either Unary Int
+          observed :: [e]
+          MkRepeated count (($ pure) -> observed) = toRepeated c
+      in
+        QC.counterexample "correctly ordered elements" (observed === es)
+        QC..&&.
+        QC.counterexample "correct count of elements"
+          ( case count of
+              Left u -> unaryLength u === length es
+              Right n -> n === length es
+          )
+        QC..&&.
+        case expectedCP of
+          UnaryCP ->
+            QC.counterexample "correct unary count prediction"
+              (count === Left (foldr (const Succ) Zero es))
+          BinaryCP ->
+            QC.counterexample "correct binary count prediction"
+              (count === Right (length es))
+          SameCP expected ->
+            QC.counterexample "unchanged count prediction"
+              (count === expected c)
