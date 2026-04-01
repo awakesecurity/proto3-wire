@@ -28,6 +28,7 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Proto3.Wire.Reverse
@@ -885,14 +886,13 @@ repeatedBuildR = etaBuildR (\xs -> foldMapRepeated (toRepeated xs) id)
 --
 -- See also: 'repeatedBuildR'
 repeatedFixedPrimR :: forall c w . (ToRepeated c (Prim.FixedPrim w), KnownNat w) => c -> BuildR
-repeatedFixedPrimR = etaBuildR $ \c ->
-  let MkRepeated count prims = toRepeated c in
-  case count of
-    Left _ ->
-      prims (\p -> Prim.liftBoundedPrim (Prim.liftFixedPrim p))
-    Right n ->
+repeatedFixedPrimR = etaBuildR $ \c -> case toRepeated c of
+  MkRepeated { countRepeated, foldMapRepeated } -> case countRepeated of
+    Nothing ->
+      foldMapRepeated (\p -> Prim.liftBoundedPrim (Prim.liftFixedPrim p))
+    Just n ->
       let w = fromInteger (natVal' (proxy# :: Proxy# w))
-      in ensure (w * n) (prims (\p -> Prim.unsafeBuildBoundedPrim (Prim.liftFixedPrim p)))
+      in ensure (w * n) (foldMapRepeated (\p -> Prim.unsafeBuildBoundedPrim (Prim.liftFixedPrim p)))
 {-# INLINE repeatedFixedPrimR #-}
 
 -- | Exported for testing purposes only.

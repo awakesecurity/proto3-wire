@@ -1,5 +1,5 @@
 {-
-  Copyright 2025 Arista Networks
+  Copyright 2025-2026 Arista Networks
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -22,6 +22,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
@@ -31,19 +32,15 @@
 
 -- | Presents right-associative folds as 'Foldable' sequences.
 module Proto3.Wire.Encode.Repeated
-  ( Unary(..)
-  , foldMapRUnaryCount
-  , foldMapLUnaryCount
-  , Repeated(..)
+  ( Repeated(..)
   , nullRepeated
   , mapRepeated
   , reverseRepeated
   , reverseMapRepeated
-  , forwardRepeatedFold
-  , reverseRepeatedFold
   , ToRepeated(..)
   ) where
 
+import Data.Bits qualified
 import Data.Functor.Identity (Identity(..))
 import Data.IntMap.Internal qualified
 import Data.IntMap.Lazy qualified
@@ -52,7 +49,7 @@ import Data.IntSet.Internal qualified
 import Data.Kind (Type)
 import Data.List.NonEmpty qualified
 import Data.Map.Lazy qualified
-import Data.Semigroup (Dual(..))
+import Data.Semigroup (All(..), Dual(..))
 import Data.Sequence qualified
 import Data.Set qualified
 import Data.Vector qualified
@@ -63,97 +60,111 @@ import GHC.Exts (Constraint, TYPE)
 import GHC.Exts qualified
 import Text.Read (Read(..))
 
--- | A lazy unary representation of a natural number--usually an element count.
-data Unary = Zero | Succ Unary
-  deriving stock (Eq, Show)
-
-instance Semigroup Unary
-  where
-    -- | Adds unary numbers.  Because recursive functions do not inline,
-    -- and hence might not beta-reduce across module boundaries, we avoid
-    -- recursion in the algorithm until the result distinguishes between
-    -- zero, one, and two or more.  Those are the three size categories
-    -- that protobuf encoding must currently distinguish between.  Though
-    -- we could use a type that explicitly ignores distinctions between
-    -- two and three, we want to leave open the possibility of future
-    -- applications demanding more size categories without necessitating
-    -- a change in the programming interface.  In such an event we could
-    -- unroll the non-recursive portion of this pattern match a bit more.
-    Zero <> y = y
-    Succ x <> y = Succ
-      ( case x of
-          Zero -> y
-          Succ z -> Succ (recursivePlus z y)
-            where
-              recursivePlus Zero v = v
-              recursivePlus (Succ u) v = Succ (recursivePlus u v)
-      )
-
-instance Monoid Unary
-  where
-    -- | The identity with respect to '<>' is 'Zero'.
-    mempty = Zero
-
--- | Lazily counts the number of elements in a 'Foldable' sequence with
--- a 'foldMap'-style fold that assumes right-associativity is best.
---
--- NOTE: This function works well for right-associative data structures such
--- as lists.  It should also work fairly well for balanced binary trees,
--- though we can get slightly better efficiency with specialized recursions.
--- For left-associative data structures use 'foldMapLUnaryCount' instead.
-foldMapRUnaryCount :: Foldable c => c e -> Unary
-foldMapRUnaryCount xs = foldMap (\_ -> Succ Zero) xs
-{-# INLINE foldMapRUnaryCount #-}
-
--- | Like 'foldMapRUnaryCount' but optimized to achieve weak head
--- normal form more quickly for left-associative data structures.
-foldMapLUnaryCount :: Foldable c => c e -> Unary
-foldMapLUnaryCount xs = getDual (foldMap (\_ -> Dual (Succ Zero)) xs)
-{-# INLINE foldMapLUnaryCount #-}
-
 -- | Expresses a sequence of values for encoding as a repeated field.
-type Repeated :: forall er . TYPE er -> Type
+--
+-- This type constructor is not 'Foldable' because it would not satisfy
+-- the efficiency assumptions of that type class.  In particular, it is
+-- optimized for left associativity.
+--
+-- This type constructor supports unlifted types, but currently
+-- most other features of this module support only lifted types.
+type Repeated :: forall {er} . TYPE er -> Type
 data Repeated e = MkRepeated
-  { countRepeated :: Either Unary Int
+  { countRepeated :: Maybe Int
       -- ^ Optionally predicts the number of elements in the sequence.  Predict
       -- the count only when it is practical to do so accurately and quickly.
       --
       -- A prediction that is too low causes undefined behavior--possibly
       -- a crash.  A length prediction that is too high overallocates
-      -- output space, as if the sequence really were that length.
-      --
-      -- When predicting the number of elements would be slow, this field
-      -- instead provides a lazy and gradual answer to the question of how
-      -- many elements are in the sequence.  Protobuf encoding may use this
-      -- value to choose between various encoding options, and usually only
-      -- needs to distinguish between zero elements, one element, and
-      -- multiple elements.  Using 'foldMapRepeated' to answer this question
-      -- could backfires if the fold direction is not optimal for the data
-      -- structure, but note that a count does not care about direction, and
-      -- therefore an optimal direction can be chosen during construction.
+      -- output space, as if the sequence really were that length, and may
+      -- cause use of packed format where unpacked format would be smaller.
+      -- And there may be other, unpredictable effects from incorrect
+      -- predictions.  Therefore if you are in doubt, use 'Nothing'
+  , unorderedRepeated :: forall m . Monoid m => (e -> m) -> m
+    -- ^ Maps every element of the sequence to a monoidal value and appends
+    -- those values an /unspecified order/ chosen for the degree to which it
+    -- allows application of '<>' in a right-associative way.  We wish to
+    -- expoit shortcuts such as @All False <> undefined = All False@.
+    -- But do not allocate in order to force right associativity.
+    --
+    -- When 'countRepeated' is unpopulated, it is helpful for 'unorderedRepeated'
+    -- to inline until at is clear that there are at least two elements in the
+    -- sequence.  Avoiding recursion until that point speeds typical use cases
+    -- (see below) because GHC will not beta-reduce recursive functions at
+    -- compile time across module boundaries.  But such unrolling is only
+    -- a preference--one that cannot be accomodated when filtering a sequence.
+    --
+    -- When 'countRepeated' is unpopulated, we often use 'unorderedRepeated' to
+    -- choose between the different formats that are allowed for a packed repeated
+    -- protobuf field.  Complete omission is of course optimal when there are zero
+    -- elements.  For a single element, unpacked format is more compact because it
+    -- avoids a length prefix.  Only when there are two or more elements does
+    -- packet format fulfill its objective of shortening the encoding.
+    --
+    -- To distinguish the above three scenarios we can use a monoid that
+    -- ignores further information once it has seen at least two elements.
+    -- It should not care about the order of the elements.
+    --
+    -- By contrast, 'foldMapRepeated' is used for builders and therefore must fold
+    -- elements in a particular order.  Furthermore, experience with prior versions
+    -- of 'Repeated' whose builder folds guaranteed a particular associativity
+    -- indicates that such guarantees trigger allocation of builder accumulators,
+    -- even when using `GHC.Exts.oneShot` on the unapplied builder arguments.
+    --
+    -- Therefore we need both 'unorderedRepeated' and 'foldMapRepeated'; neither
+    -- record field by itself is maximally efficient for both purposes.  And we
+    -- cannot simply name which format to use for packed repeated protobuf fields
+    -- because filtering changes the element count.  We need a way to recompute
+    -- the appropriate format /after/ any filtering has been applied.
   , foldMapRepeated :: forall m . Monoid m => (e -> m) -> m
-      -- ^ Performs a lazy 'foldMap' of the given function over the the desired
-      -- sequence of field values.  Typically the monoid is a reverse builder
-      -- such as `Proto3.Wire.Reverse.BuildR`, which will induce the fold to
-      -- access elements in /reverse/ order.  It is best to make such access
-      -- efficient, /but/ it is usually /not/ an optimization to allocate
-      -- a reversed sequence just for that purpose.
-      --
-      -- Thanks to vector fusion rules, it is fast to appear to reverse a vector
-      -- and then use 'Dual' to fold over that reversed vector while restoring
-      -- the original order.  The actual effect will be to iterate backward
-      -- through the existing vector, /not/ to allocate a reversed vector.
-      --
-      -- See also 'reverseRepeated', 'forwardRepeatedFold', and 'reverseRepeatedFold'.
+    -- ^ Performs a lazy 'foldMap' of the given function over the the desired
+    -- sequence of field values.  Often the monoid is a reverse builder such
+    -- as `Proto3.Wire.Reverse.BuildR`, which will induce the fold to access
+    -- elements in /reverse/ order, even though it does /not/ reverse the
+    -- semantic order.  It is best to make reverse iteration efficient,
+    -- /but/ it is usually /not/ an optimization to allocate another
+    -- sequence just for that purpose.
+    --
+    -- Thanks to vector fusion rules, it is fast to logically reverse a vector
+    -- and then use 'Dual' to fold over that reversed vector while restoring
+    -- the original order.  The actual effect will be to iterate backward
+    -- through the existing vector, /not/ to allocate a reversed vector.
+    --
+    -- See also 'reverseRepeated'.
   }
   deriving stock (Functor)
+
+countList :: [e] -> (forall m . Monoid m => (e -> m) -> m)
+countList = \case
+  [] -> \_ -> mempty
+  [x] -> \j -> j x
+  x1 : x2 : xs -> \j -> j x1 <> j x2 <> foldMap j xs
+{-# INLINE countList #-}
 
 instance GHC.Exts.IsList (Repeated e)
   where
     type Item (Repeated e) = e
-    fromList = toRepeated
-    fromListN n xs = MkRepeated (Right n) (forwardRepeatedFold xs)
-    toList (MkRepeated _ xs) = xs pure
+
+    fromList xs = MkRepeated
+      { countRepeated = Nothing
+      , unorderedRepeated = countList xs
+      , foldMapRepeated = \j -> foldMap j xs
+          -- Reads to the end of the list before presenting the last element,
+          -- but we think that explicitly reversing the list would be slower.
+      }
+    {-# INLINE fromList #-}
+
+    fromListN n xs = MkRepeated
+      { countRepeated = Just n
+      , unorderedRepeated = \j -> foldMap j xs
+          -- In this case we will not need 'unorderedRepeated' unless we filter,
+          -- at which point the unrolling done by 'countList' will not help but
+          -- might still increase code size.  Therefore we use a simple 'foldMap'.
+      , foldMapRepeated = \j -> foldMap j xs
+      }
+    {-# INLINE fromListN #-}
+
+    toList xs = foldMapRepeated xs pure
 
 instance Eq e =>
          Eq (Repeated e)
@@ -172,10 +183,9 @@ instance Show e =>
 
 -- | Is the given sequence empty?
 nullRepeated :: Repeated e -> Bool
-nullRepeated (MkRepeated count _) = case count of
-  Left Zero -> True
-  Left (Succ _) -> False
-  Right n -> n == 0
+nullRepeated MkRepeated{ countRepeated, unorderedRepeated } = case countRepeated of
+  Just n -> n == 0
+  Nothing -> getAll (unorderedRepeated (\_ -> All False))
 {-# INLINE nullRepeated #-}
 
 -- | A convenience function that maps a function over a sequence,
@@ -183,7 +193,7 @@ nullRepeated (MkRepeated count _) = case count of
 mapRepeated ::
   forall (c :: Type) (e :: Type) (a :: Type) . ToRepeated c e => (e -> a) -> c -> Repeated a
 mapRepeated f xs = fmap f (toRepeated xs)
-{-# INLINE [1] mapRepeated #-}
+{-# INLINE mapRepeated #-}
 
 -- | Reverses the semantic order of a 'Repeated' sequence, /without/ changing
 -- the performance characteristics of the underlying source of the elements.
@@ -193,20 +203,12 @@ mapRepeated f xs = fmap f (toRepeated xs)
 -- that start immediately with the semantically-final element, namely @\'C\'@,
 -- because it remains the most accessible element of the underlying list.
 reverseRepeated :: Repeated e -> Repeated e
-reverseRepeated (MkRepeated count xs) = MkRepeated count (\f -> getDual (xs (\e -> Dual (f e))))
-{-# INLINE [1] reverseRepeated #-}
-
--- Together, the following rules should tend to eliminate double reversals,
--- though it may be that GHC would optimize away their costs regardless,
--- provided that everything involved is at least INLINABLE.
-{-# RULES
-    "reverseRepeated/reverseRepeated"
-      forall xs . reverseRepeated (reverseRepeated xs) = xs
-  #-}
-{-# RULES
-    "mapRepeated/reverseRepeated"
-      forall xs f . mapRepeated f (reverseRepeated xs) = reverseRepeated (mapRepeated f xs)
-  #-}
+reverseRepeated MkRepeated{ countRepeated, unorderedRepeated, foldMapRepeated } = MkRepeated
+  { countRepeated
+  , unorderedRepeated
+  , foldMapRepeated = \j -> getDual (foldMapRepeated (\e -> Dual (j e)))
+  }
+{-# INLINE reverseRepeated #-}
 
 -- | A convenient composition of 'reverseRepeated' and 'mapRepeated':
 -- @reverseMapRepeated f xs = reverseRepeated (mapRepeated f xs)@
@@ -215,38 +217,11 @@ reverseMapRepeated ::
 reverseMapRepeated f xs = reverseRepeated (mapRepeated f xs)
 {-# INLINE reverseMapRepeated #-}
 
--- | Converts from a (lifted) 'Foldable' sequence to the value for
--- field 'foldMapRepeated', preserving the order of that sequence.
---
--- This function is most efficient when the type of sequence you provide
--- makes it fast to start with the /last/ element of the provided sequence
--- (like a conceptually reversed vector) or at least has no particular
--- preference between first and last (like a `Set.Set`).
---
--- If instead your data structure makes it fastest to start with
--- the /first/ element of the sequence (like a @[]@), then consider
--- whether you can arrange for it to be in the reverse of the desired
--- order, and then apply 'reverseRepeated', which makes attempts to
--- access the semantically last element redirect to the first one.
--- But do not allocate a second sequence just for that purpose.
-forwardRepeatedFold :: Foldable c => c e -> (forall m . Monoid m => (e -> m) -> m)
-forwardRepeatedFold xs f = foldMap f xs
-{-# INLINE forwardRepeatedFold #-}
-
--- | Like 'forwardRepeated', but reverses the semantic order of the sequence.
---
--- This function cannot actually change the underlying performance properties
--- of the sequence, so use this function only when it is fastest to start with
--- the /first/ element of the provided sequence--which should be in an order
--- that is opposite to the desired meaning of the 'Repeated' sequence.
---
--- See also the comments for 'foldMapRepeated'.
-reverseRepeatedFold :: Foldable c => c e -> (forall m . Monoid m => (e -> m) -> m)
-reverseRepeatedFold xs f = getDual (foldMap (\e -> Dual (f e)) xs)
-{-# INLINE reverseRepeatedFold #-}
-
 -- | For each container type, specifies the optimal method for reverse iteration.
-type ToRepeated :: forall cr . TYPE cr -> forall er . TYPE er -> Constraint
+--
+-- This type constructor supports unlifted types, but currently
+-- most other features of this module support only lifted types.
+type ToRepeated :: forall {cr} . TYPE cr -> forall {er} . TYPE er -> Constraint
 class ToRepeated c e | c -> e
   where
     -- | Converts to a reverse iteration over the elements.
@@ -260,149 +235,188 @@ instance forall er (e :: TYPE er) .
 
 instance ToRepeated (Identity a) a
   where
-    toRepeated x = MkRepeated (Right 1) (\f -> f (runIdentity x))
+    toRepeated (Identity x) = MkRepeated
+      { countRepeated = Just 1
+      , unorderedRepeated = \j -> j x
+      , foldMapRepeated = \j -> j x
+      }
     {-# INLINE toRepeated #-}
 
 instance ToRepeated [a] a
   where
-    toRepeated xs = MkRepeated (Left (foldMapRUnaryCount xs)) (forwardRepeatedFold xs)
-      -- Unavoidably reads to the end of the list before presenting the last element.
+    toRepeated = GHC.Exts.fromList
     {-# INLINE toRepeated #-}
+
+countNonEmpty :: Data.List.NonEmpty.NonEmpty e -> (forall m . Monoid m => (e -> m) -> m)
+countNonEmpty = \case
+  x Data.List.NonEmpty.:| [] -> \j -> j x
+  x1 Data.List.NonEmpty.:| x2 : xs -> \j -> j x1 <> j x2 <> foldMap j xs
+{-# INLINE countNonEmpty #-}
 
 instance ToRepeated (Data.List.NonEmpty.NonEmpty a) a
   where
-    toRepeated xs = MkRepeated (Left (foldMapRUnaryCount xs)) (forwardRepeatedFold xs)
-      -- Unavoidably reads to the end of the list before presenting the last element.
+    toRepeated xs = MkRepeated
+      { countRepeated = Nothing
+      , unorderedRepeated = countNonEmpty xs
+      , foldMapRepeated = \j -> foldMap j xs
+          -- Reads to the end of the list before presenting the last element,
+          -- but we think that explicitly reversing the list would be worse.
+      }
     {-# INLINE toRepeated #-}
 
 instance ToRepeated (Data.Vector.Vector a) a
   where
     toRepeated xs = MkRepeated
-      (Right (Data.Vector.length xs))
-      (\f -> getDual (Data.Vector.foldMap (\e -> Dual (f e)) (Data.Vector.reverse xs)))
-      -- Vector fusion should convert this to right-to-left iteration.
+      { countRepeated = Just (Data.Vector.length xs)
+      , unorderedRepeated = \j -> Data.Vector.foldMap j (Data.Vector.reverse xs)
+          -- No need for unrolling because we are predicting the length.
+          -- We could iterate in either order.  We choose reverse so that loop
+          -- termination can test against the constant zero, reducing live values.
+      , foldMapRepeated =
+          \j -> getDual (Data.Vector.foldMap (\e -> Dual (j e)) (Data.Vector.reverse xs))
+          -- Vector fusion should convert this to right-to-left iteration.
+      }
     {-# INLINE toRepeated #-}
 
 instance Storable a =>
          ToRepeated (Data.Vector.Storable.Vector a) a
   where
     toRepeated xs = MkRepeated
-      (Right (Data.Vector.Storable.length xs))
-      ( \f -> getDual
-          (Data.Vector.Storable.foldMap (\e -> Dual (f e)) (Data.Vector.Storable.reverse xs)) )
-      -- Vector fusion should convert this to right-to-left iteration.
+      { countRepeated = Just (Data.Vector.Storable.length xs)
+      , unorderedRepeated = \j -> Data.Vector.Storable.foldMap j (Data.Vector.Storable.reverse xs)
+          -- No need for unrolling because we are predicting the length.
+          -- We could iterate in either order.  We choose reverse so that loop
+          -- termination can test against the constant zero, reducing live values.
+      , foldMapRepeated = \j -> getDual
+          (Data.Vector.Storable.foldMap (\e -> Dual (j e)) (Data.Vector.Storable.reverse xs))
+          -- Vector fusion should convert this to right-to-left iteration.
+      }
     {-# INLINE toRepeated #-}
 
 instance Data.Vector.Unboxed.Unbox a =>
          ToRepeated (Data.Vector.Unboxed.Vector a) a
   where
     toRepeated xs = MkRepeated
-      (Right (Data.Vector.Unboxed.length xs))
-      ( \f -> getDual
-          (Data.Vector.Unboxed.foldMap (\e -> Dual (f e)) (Data.Vector.Unboxed.reverse xs)) )
-      -- Vector fusion should convert this to right-to-left iteration.
+      { countRepeated = Just (Data.Vector.Unboxed.length xs)
+      , unorderedRepeated = \j -> Data.Vector.Unboxed.foldMap j (Data.Vector.Unboxed.reverse xs)
+          -- No need for unrolling because we are predicting the length.
+          -- We could iterate in either order.  We choose reverse so that loop
+          -- termination can test against the constant zero, reducing live values.
+      , foldMapRepeated = \j -> getDual
+          (Data.Vector.Unboxed.foldMap (\e -> Dual (j e)) (Data.Vector.Unboxed.reverse xs))
+          -- Vector fusion should convert this to right-to-left iteration.
+      }
     {-# INLINE toRepeated #-}
 
 instance ToRepeated (Data.Sequence.Seq a) a
   where
-    toRepeated xs = MkRepeated (Right (Data.Sequence.length xs)) (forwardRepeatedFold xs)
-      -- Should present the last element without having to read through the whole sequence.
+    toRepeated xs = MkRepeated
+      { countRepeated = Just (Data.Sequence.length xs)
+      , unorderedRepeated = \j -> foldMap j xs
+          -- No need for unrolling because we are predicting the length.
+      , foldMapRepeated = \j -> foldMap j xs
+          -- Should present the last element without having to read through the whole sequence,
+          -- though we may have to descend to the bottom of the tree.
+      }
     {-# INLINE toRepeated #-}
 
 instance ToRepeated (Data.Set.Set a) a
   where
-    toRepeated xs = MkRepeated (Right (Data.Set.size xs)) (forwardRepeatedFold xs)
-      -- Should present the last element without having to read through the whole sequence.
+    toRepeated xs = MkRepeated
+      { countRepeated = Just (Data.Set.size xs)
+      , unorderedRepeated = \j -> foldMap j xs
+          -- No need for unrolling because we are predicting the length.
+      , foldMapRepeated = \j -> foldMap j xs
+          -- Should present the last element without having to read through the whole sequence,
+          -- though we may have to descend to the bottom of the tree.
+      }
     {-# INLINE toRepeated #-}
 
-instance ToRepeated Data.IntSet.IntSet Int
+countIntSet :: Data.IntSet.IntSet -> (forall m . Monoid m => (Data.IntSet.Key -> m) -> m)
+countIntSet xs j = case xs of
+#if MIN_VERSION_containers(0,8,0)
+  Data.IntSet.Internal.Bin _ lf rt ->
+#else
+  Data.IntSet.Internal.Bin _ _ lf rt ->
+#endif
+    -- Note that the inline part of this function presents the existence of
+    -- two elements, though it requires recursion to provide their values.
+    let (l, ls) = Data.IntSet.deleteFindMin lf
+        (r, rs) = Data.IntSet.deleteFindMax rt
+    in j l <> j r <> Data.IntSet.foldr ((<>) . j) (Data.IntSet.foldr ((<>) . j) mempty rs) ls
+  Data.IntSet.Internal.Tip _ m ->
+    case Data.Bits.popCount m of
+      1 -> let z = case Data.IntSet.toList xs of
+                     [] -> error "countIntSet: singleton Tip folds to zero elements"
+                     [y] -> y
+                     _ : _ : _ -> error "countIntSet: singleton Tip folds to multiple elements"
+           in j z
+      _ -> let (z1, z2, zs) = case Data.IntSet.toList xs of
+                                [] -> error "countIntSet: non-singleton Tip folds to zero elements"
+                                [_] -> error "countIntSet: non-singleton Tip folds to one element"
+                                y1 : y2 : ys -> (y1, y2, ys)
+           in j z1 <> j z2 <> foldMap j zs
+  Data.IntSet.Internal.Nil ->
+    mempty
+{-# INLINE countIntSet #-}
+
+instance ToRepeated Data.IntSet.IntSet Data.IntSet.Key
   where
     toRepeated xs = MkRepeated
-      (Left (countIntSet xs))
+      { countRepeated = Nothing
+      , unorderedRepeated = countIntSet xs
+      , foldMapRepeated =
 #if MIN_VERSION_containers(0,8,0)
-      (\f -> Data.IntSet.foldMap f xs)
+          \j -> Data.IntSet.foldMap j xs
 #else
-      (\f -> Data.IntSet.foldl (\a x -> a <> f x) mempty xs)
+          \j -> Data.IntSet.foldl (\a x -> a <> j x) mempty xs
 #endif
-      -- Should present the last element without having to read through the whole sequence.
+          -- Should present the last element without having to read through the whole sequence,
+          -- though we may have to descend to the bottom of the tree.
+      }
     {-# INLINE toRepeated #-}
-
--- Note that weak head normal form does not demand recursive evaluation.
--- This property bounds the amount of the set that must be seen to decide
--- between size 0, size 1, and all other sizes.
-countIntSet :: Data.IntSet.IntSet -> Unary
-countIntSet xs = case xs of
-#if MIN_VERSION_containers(0,8,0)
-    Data.IntSet.Internal.Bin _ lf rt ->
-#else
-    Data.IntSet.Internal.Bin _ _ lf rt ->
-#endif
-      Succ (Succ (nonempty lf <> nonempty rt))
-    Data.IntSet.Internal.Tip _ _ ->
-      Succ (unaryFromInt (Data.IntSet.size xs - 1))
-    Data.IntSet.Internal.Nil ->
-      Zero
-  where
-    -- Assumes that the given set is nonempty and returns one less than its size.
-    nonempty ys = case ys of
-#if MIN_VERSION_containers(0,8,0)
-      Data.IntSet.Internal.Bin _ lf rt ->
-#else
-      Data.IntSet.Internal.Bin _ _ lf rt ->
-#endif
-        Succ (nonempty lf <> nonempty rt)
-      Data.IntSet.Internal.Tip _ _ ->
-        unaryFromInt (Data.IntSet.size ys - 1)
-      Data.IntSet.Internal.Nil ->
-        error "countIntSet: nonempty branch"
 
 instance ToRepeated (Data.Map.Lazy.Map k a) (k, a)
   where
     toRepeated xs = MkRepeated
-      (Right (Data.Map.Lazy.size xs))
-      (\f -> Data.Map.Lazy.foldMapWithKey (curry f) xs)
-      -- Should present the last key-value pair without having to read through the whole map.
+      { countRepeated = Just (Data.Map.Lazy.size xs)
+      , unorderedRepeated = \j -> Data.Map.Lazy.foldMapWithKey (curry j) xs
+          -- No need for unrolling because we are predicting the length.
+      , foldMapRepeated = \j -> Data.Map.Lazy.foldMapWithKey (curry j) xs
+          -- Should present the last key-value pair without having to read through the whole map,
+          -- though we may have to descend to the bottom of the tree.
+      }
     {-# INLINE toRepeated #-}
 
-instance ToRepeated (Data.IntMap.Lazy.IntMap a) (Int, a)
+countIntMap ::
+  Data.IntMap.Lazy.IntMap a ->
+  (forall m . Monoid m => ((Data.IntMap.Lazy.Key, a) -> m) -> m)
+countIntMap xs j = case xs of
+#if MIN_VERSION_containers(0,8,0)
+  Data.IntMap.Internal.Bin _ lf rt ->
+#else
+  Data.IntMap.Internal.Bin _ _ lf rt ->
+#endif
+    -- Note that the inline part of this function presents the existence of
+    -- two elements, though it requires recursion to provide their values.
+    let (l, ls) = Data.IntMap.Lazy.deleteFindMin lf
+        (r, rs) = Data.IntMap.Lazy.deleteFindMax rt
+    in j l <> j r <>
+         Data.IntMap.Lazy.foldMapWithKey (curry j) ls <>
+         Data.IntMap.Lazy.foldMapWithKey (curry j) rs
+  Data.IntMap.Internal.Tip k x ->
+    j (k, x)
+  Data.IntMap.Internal.Nil ->
+    mempty
+{-# INLINE countIntMap #-}
+
+instance ToRepeated (Data.IntMap.Lazy.IntMap a) (Data.IntMap.Lazy.Key, a)
   where
     toRepeated xs = MkRepeated
-      (Left (countIntMap xs))
-      (\f -> Data.IntMap.Lazy.foldMapWithKey (curry f) xs)
-      -- Should present the last key-value pair without having to read through the whole map.
+      { countRepeated = Nothing
+      , unorderedRepeated = countIntMap xs
+      , foldMapRepeated = \j -> Data.IntMap.Lazy.foldMapWithKey (curry j) xs
+          -- Should present the last key-value pair without having to read through the whole map,
+          -- though we may have to descend to the bottom of the tree.
+      }
     {-# INLINE toRepeated #-}
-
--- Note that weak head normal form does not demand recursive evaluation.
--- This property bounds the amount of the map that must be seen to decide
--- between size 0, size 1, and all other sizes.
-countIntMap :: Data.IntMap.Lazy.IntMap a -> Unary
-countIntMap xs = case xs of
-#if MIN_VERSION_containers(0,8,0)
-    Data.IntMap.Internal.Bin _ lf rt ->
-#else
-    Data.IntMap.Internal.Bin _ _ lf rt ->
-#endif
-      Succ (Succ (nonempty lf <> nonempty rt))
-    Data.IntMap.Internal.Tip _ _ ->
-      Succ Zero
-    Data.IntMap.Internal.Nil ->
-      Zero
-  where
-    -- Assumes that the given map is nonempty and returns one less than its size.
-    nonempty ys = case ys of
-#if MIN_VERSION_containers(0,8,0)
-      Data.IntMap.Internal.Bin _ lf rt ->
-#else
-      Data.IntMap.Internal.Bin _ _ lf rt ->
-#endif
-        Succ (nonempty lf <> nonempty rt)
-      Data.IntMap.Internal.Tip _ _ ->
-        Zero
-      Data.IntMap.Internal.Nil ->
-        error "countIntMap: nonempty branch"
-
--- | Creates a 'Unary' representation of @max 0@ of the given 'Int'.
-unaryFromInt :: Int -> Unary
-unaryFromInt n
-  | n <= 0 = Zero
-  | otherwise = Succ (unaryFromInt (n - 1))
