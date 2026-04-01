@@ -818,7 +818,7 @@ toRepeatedTests = testGroup "ToRepeated"
   , test_mapRepeated
   , test_reverseRepeated
   , test_reverseMapRepeated
-  , test_ToRepeated (SameCP countRepeated) (fmap snd genRepeated) GHC.Exts.toList
+  , test_ToRepeated (SameCP (\(MkRepeated mc _ _) -> mc)) (fmap snd genRepeated) GHC.Exts.toList
   , test_ToRepeated CorrectCP QC.arbitrary (toList @Identity @Word8)
   , test_ToRepeated NoCP QC.arbitrary (id @[Word8])
   , test_ToRepeated NoCP ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
@@ -842,12 +842,12 @@ genRepeated = do
   cs <- QC.shuffle xs
   pure ( xs
        , MkRepeated
-           { countRepeated = if predict then Just (length xs) else Nothing
-           , unorderedRepeated = \f -> foldMap f cs
-           , foldMapRepeated = if rightAssociative
+           (if predict then Just (length xs) else Nothing)
+           (\f -> foldMap f cs)
+           ( if rightAssociative
                then (\f -> foldr (\x acc -> f x <> acc) mempty xs)
                else (\f -> foldl (\acc x -> acc <> f x) mempty xs)
-           }
+           )
        )
 
 test_Eq_Repeated :: TestTree
@@ -864,23 +864,23 @@ test_IsList_Repeated =
       GHC.Exts.toList x === xs
       QC..&&.
       ( case GHC.Exts.fromList xs of
-          r@MkRepeated{ countRepeated, unorderedRepeated, foldMapRepeated } ->
-            foldMapRepeated pure === xs
+          r@(MkRepeated mc us os) ->
+            os pure === xs
             QC..&&.
-            sort (unorderedRepeated pure) === sort xs
+            sort (us pure) === sort xs
             QC..&&.
-            (all @Maybe (== length xs) countRepeated)
+            (all @Maybe (== length xs) mc)
             QC..&&.
             r === x  -- this check is redundant with other checks
       )
       QC..&&.
       ( case GHC.Exts.fromListN (length xs) xs of
-          r@MkRepeated{ countRepeated, unorderedRepeated, foldMapRepeated } ->
-            foldMapRepeated pure === xs
+          r@(MkRepeated mc us os) ->
+            os pure === xs
             QC..&&.
-            sort (unorderedRepeated pure) === sort xs
+            sort (us pure) === sort xs
             QC..&&.
-            countRepeated === Just (length xs)
+            mc === Just (length xs)
             QC..&&.
             r === x  -- this check is redundant with other checks
       )
@@ -944,11 +944,7 @@ test_ToRepeated expectedCP gen cToList =
   QC.testProperty (showString "toRepeated @(" $ showsTypeRep cRep ")") $
     QC.forAll gen $ \(c :: c) ->
       let es = cToList c
-          MkRepeated
-            { countRepeated
-            , unorderedRepeated = ($ pure) -> unordered
-            , foldMapRepeated = ($ pure) -> observed
-            } = toRepeated c
+          MkRepeated mc (($ pure) -> unordered) (($ pure) -> observed) = toRepeated c
       in
         QC.counterexample "correctly ordered elements" (observed === es)
         QC..&&.
@@ -956,12 +952,12 @@ test_ToRepeated expectedCP gen cToList =
           (sort unordered === sort es)
         QC..&&.
         QC.counterexample "correct count prediction if any"
-          (all @Maybe (== length es) countRepeated)
+          (all @Maybe (== length es) mc)
         QC..&&.
         case expectedCP of
           NoCP ->
-            QC.counterexample "no count prediction" (countRepeated === Nothing)
+            QC.counterexample "no count prediction" (mc === Nothing)
           CorrectCP ->
-            QC.counterexample "correct count prediction" (countRepeated === Just (length es))
+            QC.counterexample "correct count prediction" (mc === Just (length es))
           SameCP expected ->
-            QC.counterexample "unchanged count prediction" (countRepeated === expected c)
+            QC.counterexample "unchanged count prediction" (mc === expected c)

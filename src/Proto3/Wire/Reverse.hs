@@ -873,7 +873,7 @@ vectorBuildR f = etaBuildR (foldlRVector (\acc x -> acc <> f x) mempty)
 --
 -- See also: 'repeatedFixedPrimR', 'vectorBuildR'
 repeatedBuildR :: ToRepeated c BuildR => c -> BuildR
-repeatedBuildR = etaBuildR (\xs -> foldMapRepeated (toRepeated xs) id)
+repeatedBuildR = etaBuildR (\xs -> case toRepeated xs of MkRepeated _ _ os -> os id)
 {-# INLINE repeatedBuildR #-}
 
 -- | Concatenates the given fixed-width primitives, iterating right to left where practical
@@ -886,13 +886,13 @@ repeatedBuildR = etaBuildR (\xs -> foldMapRepeated (toRepeated xs) id)
 --
 -- See also: 'repeatedBuildR'
 repeatedFixedPrimR :: forall c w . (ToRepeated c (Prim.FixedPrim w), KnownNat w) => c -> BuildR
-repeatedFixedPrimR = etaBuildR $ \c -> case toRepeated c of
-  MkRepeated { countRepeated, foldMapRepeated } -> case countRepeated of
+repeatedFixedPrimR = etaBuildR $ \xs -> case toRepeated xs of
+  MkRepeated mc _ os -> case mc of
     Nothing ->
-      foldMapRepeated (\p -> Prim.liftBoundedPrim (Prim.liftFixedPrim p))
-    Just n ->
+      os (\p -> Prim.liftBoundedPrim (Prim.liftFixedPrim p))
+    Just c ->
       let w = fromInteger (natVal' (proxy# :: Proxy# w))
-      in ensure (w * n) (foldMapRepeated (\p -> Prim.unsafeBuildBoundedPrim (Prim.liftFixedPrim p)))
+      in ensure (w * c) (os (\p -> Prim.unsafeBuildBoundedPrim (Prim.liftFixedPrim p)))
 {-# INLINE repeatedFixedPrimR #-}
 
 -- | Exported for testing purposes only.
