@@ -1,9 +1,12 @@
 1.5.0
-  - Modify `Repeated` to use a `foldMap`-style fold to avoid
-    allocation of `BuildR` functions on the heap.  Use of `FoldR`
-    seemed to force such allocation, even when using `oneShot`.
-  - Use `oneShot` in `BuildR` to discourage allocation of such
-    function newtypes on the heap.
+  - As a breaking change, modify `Repeated` and `ToRepeated` to use `foldMap`-style
+    folds and thereby avoid allocation of `BuildR` functions on the heap.  Use
+    of `FoldR` seemed to force such allocation, even when using `oneShot`.
+  - Use `oneShot` in `BuildR` to discourage allocation of
+    such function newtypes on the heap in other scenarios.
+  - Add `PackedField` to support packed fields in a uniform fashion,
+    and directly implement omission of such a field when it is empty.
+  - Add `embeddedIfNonempty` as a way to omit empty length-delimited fields.
   - Deprecate `FoldR` and `unsafeReverseFoldMapFixedPrim` because
     we have stopped using them and plan to remove them in future.
 

@@ -14,11 +14,14 @@
   limitations under the License.
 -}
 
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DerivingStrategies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE LambdaCase #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -27,6 +30,7 @@
 
 module Main where
 
+import           Control.Applicative   ( (<|>) )
 import           Control.Arrow         ( (&&&), second )
 import           Control.Monad         ( guard, void )
 import           Control.Monad.Trans.State ( StateT(..) )
@@ -43,7 +47,7 @@ import           Data.Int
 import qualified Data.IntMap.Lazy
 import qualified Data.IntSet
 import qualified Data.Map.Lazy
-import           Data.Maybe            ( fromMaybe )
+import           Data.Maybe            ( fromMaybe, mapMaybe )
 import           Data.List             ( sort )
 import qualified Data.List.NonEmpty    as NE
 import           Data.Proxy            ( Proxy(..) )
@@ -55,19 +59,22 @@ import           Data.Typeable         ( Typeable, showsTypeRep, typeRep )
 import qualified Data.Vector           as V
 import qualified Data.Vector.Storable  as VS
 import qualified Data.Vector.Unboxed   as VU
-import           Data.Word             ( Word8, Word64 )
+import           Data.Word             ( Word8, Word16, Word32, Word64 )
 import           Foreign               ( sizeOf )
 import qualified GHC.Exts
 import           Text.Read             ( readEither )
 
 import           Proto3.Wire
 import qualified Proto3.Wire.Builder   as Builder
-import qualified Proto3.Wire.Reverse   as Reverse
+import qualified Proto3.Wire.Decode    as Decode
 import qualified Proto3.Wire.Encode    as Encode
 import           Proto3.Wire.Encode.Repeated
-                                       ( Repeated(..), ToRepeated(..), mapRepeated,
-                                         nullRepeated, reverseMapRepeated, reverseRepeated )
-import qualified Proto3.Wire.Decode    as Decode
+                                       ( Repeated(..), Reverse(..), ToRepeated(..),
+                                         foldMapRepeated, mapRepeated, mapMaybeRepeated,
+                                         nullRepeated, reverseMapRepeated, reverseRepeated,
+                                         toRepeated )
+import qualified Proto3.Wire.Reverse   as Reverse
+import           Proto3.Wire.Types     ( WireType(..) )
 
 import qualified Test.DocTest
 import           Test.QuickCheck       ( (===), Arbitrary )
@@ -186,7 +193,15 @@ roundTripTests = testGroup "Roundtrip tests"
                                                                    0 `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
-                           , roundTrip "embeddedListPackedVarints"
+                           , roundTrip "embeddedIfNonempty"
+                                       (Encode.embeddedIfNonempty (fieldNumber 1) .
+                                            Encode.int32 (fieldNumber 2))
+                                       (fmap (fromMaybe 0)
+                                             (Decode.embedded (one Decode.int32
+                                                                   0 `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedVarints - Function"
                                        (Encode.embedded (fieldNumber 1) .
                                             Encode.packedVarints (fieldNumber 1))
                                        (fmap (fromMaybe [0,1,2,3,4])
@@ -194,7 +209,48 @@ roundTripTests = testGroup "Roundtrip tests"
                                                                    `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
-                           , roundTrip "embeddedListPackedFixed32"
+                           , roundTrip "embeddedListPackedVarints - Method Word64"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Varint @[Word64] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedVarints []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedVarints - Method Word32"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Varint @[Word32] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedVarints []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedVarints - Method Word16"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Varint @[Word16] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedVarints []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedVarints - Method Word8"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Varint @[Word8] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedVarints []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedVarints - Method Bool"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Varint @[Bool] (fieldNumber 2))
+                                       (fmap (fromMaybe [False,True,False,True,False])
+                                             (fmap (map (0 /=)) <$>
+                                              Decode.embedded (one Decode.packedVarints []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedFixed32 - Function"
                                        (Encode.embedded (fieldNumber 1) .
                                             Encode.packedFixed32 (fieldNumber 1))
                                        (fmap (fromMaybe [0,1,2,3,4])
@@ -202,7 +258,15 @@ roundTripTests = testGroup "Roundtrip tests"
                                                                    `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
-                           , roundTrip "embeddedListPackedFixed64"
+                           , roundTrip "embeddedListPackedFixed32 - Method Word32"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Fixed32 @[Word32] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedFixed32 []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedFixed64 - Function"
                                        (Encode.embedded (fieldNumber 1) .
                                             Encode.packedFixed64 (fieldNumber 1))
                                        (fmap (fromMaybe [0,1,2,3,4])
@@ -210,7 +274,15 @@ roundTripTests = testGroup "Roundtrip tests"
                                                                    `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
-                           , roundTrip "embeddedListPackedFloats"
+                           , roundTrip "embeddedListPackedFixed64 - Method Word64"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Fixed64 @[Word64] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedFixed64 []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedFloats - Function"
                                        (Encode.embedded (fieldNumber 1) .
                                             Encode.packedFloats (fieldNumber 1))
                                        (fmap (fromMaybe [0,1,2,3,4])
@@ -218,13 +290,29 @@ roundTripTests = testGroup "Roundtrip tests"
                                                                    `at`
                                                                    fieldNumber 1))
                                             `at` fieldNumber 1)
-                           , roundTrip "embeddedListPackedDoubles"
+                           , roundTrip "embeddedListPackedFloats - Method Float"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Fixed32 @[Float] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedFloats []
+                                                                   `at`
+                                                                   fieldNumber 2))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedDoubles - Function"
                                        (Encode.embedded (fieldNumber 1) .
                                             Encode.packedDoubles (fieldNumber 1))
                                        (fmap (fromMaybe [0,1,2,3,4])
                                              (Decode.embedded (one Decode.packedDoubles []
                                                                    `at`
                                                                    fieldNumber 1))
+                                            `at` fieldNumber 1)
+                           , roundTrip "embeddedListPackedDoubles - Method Double"
+                                       (Encode.embedded (fieldNumber 1) .
+                                            Encode.packedField @'Fixed64 @[Double] (fieldNumber 2))
+                                       (fmap (fromMaybe [0,1,2,3,4])
+                                             (Decode.embedded (one Decode.packedDoubles []
+                                                                   `at`
+                                                                   fieldNumber 2))
                                             `at` fieldNumber 1)
                            , roundTrip "embeddedListUnpacked"
                                        (Encode.embedded (fieldNumber 1) .
@@ -283,7 +371,7 @@ roundTripFor gen name encode decode =
         \x ->
             let bytes = Encode.toLazyByteString (encode x) in
             case Decode.parse decode (BL.toStrict bytes) of
-                Left _ -> error "Could not decode encoded message"
+                Left e -> error $ "Could not decode encoded message: " ++ show e
                 Right x' -> x === x'
 
 genManyOctets :: QC.Gen [Word8]
@@ -806,19 +894,24 @@ packedDoublesV_large = HU.testCase "Large packedDoublesV" $ do
                              (BL.toStrict encoded)
   HU.assertEqual "round trip" (Right [2 .. count + 1]) decoded
 
-data ExpectedCountPrediction c = NoCP | CorrectCP | SameCP (c -> Maybe Int)
+data ExpectedCountPrediction c = NoCP | CorrectCP
 
 toRepeatedTests :: TestTree
 toRepeatedTests = testGroup "ToRepeated"
-  [ test_Eq_Repeated
+  [ test_genRepeated
+  , test_Eq_Repeated
   , test_IsList_Repeated
-  , test_Read_Repeated
   , test_Show_Repeated
+  , test_Read_Repeated
+  , test_Functor_Repeated
   , test_nullRepeated
-  , test_mapRepeated
+  , test_toRepeated
   , test_reverseRepeated
+  , test_mapRepeated
   , test_reverseMapRepeated
-  , test_ToRepeated (SameCP (\(MkRepeated mc _ _) -> mc)) (fmap snd genRepeated) GHC.Exts.toList
+  , test_mapMaybeRepeated
+  , test_foldMapRepeated
+  , test_ToRepeated_Repeated
   , test_ToRepeated CorrectCP QC.arbitrary (toList @Identity @Word8)
   , test_ToRepeated NoCP QC.arbitrary (id @[Word8])
   , test_ToRepeated NoCP ((NE.:|) <$> QC.arbitrary <*> QC.arbitrary) (toList @NE.NonEmpty @Word8)
@@ -832,105 +925,225 @@ toRepeatedTests = testGroup "ToRepeated"
   , test_ToRepeated NoCP QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
   ]
 
+data TestSequenceNE e = LeafSequenceNE e | NodeSequenceNE (TestSequenceNE e) (TestSequenceNE e)
+
+data TestSequence e = TestSequence (Maybe Int) (Maybe (TestSequenceNE e))
+
+instance ToRepeated (TestSequence e) e
+  where
+    predictRepeatedSource (TestSequence maybeCount _) = maybeCount
+    {-# INLINE predictRepeatedSource #-}
+
+    foldMapRepeatedSource _ (TestSequence _ Nothing) = mempty
+    foldMapRepeatedSource f (TestSequence _ (Just xs)) = go xs
+      where
+        go (LeafSequenceNE x) = f x
+        go (NodeSequenceNE l r) = go l <> go r
+    {-# INLINE foldMapRepeatedSource #-}
+
+instance ToRepeated (Reverse (TestSequence e)) e
+  where
+    predictRepeatedSource (Reverse (TestSequence maybeCount _)) = maybeCount
+    {-# INLINE predictRepeatedSource #-}
+
+    foldMapRepeatedSource _ (Reverse (TestSequence _ Nothing)) = mempty
+    foldMapRepeatedSource f (Reverse (TestSequence _ (Just xs))) = go xs
+      where
+        go (LeafSequenceNE x) = f x
+        go (NodeSequenceNE l r) = go r <> go l
+    {-# INLINE foldMapRepeatedSource #-}
+
+toNonEmptyTestSequenceNE :: TestSequenceNE e -> NE.NonEmpty e
+toNonEmptyTestSequenceNE = \case
+  LeafSequenceNE x -> x NE.:| []
+  NodeSequenceNE l r -> toNonEmptyTestSequenceNE l <> toNonEmptyTestSequenceNE r
+
+-- NOTE: Does not preserve order, nor does it need to preserve
+-- order because we use it only during random generation.
+splitAndReorderTestSequenceNE :: NE.NonEmpty Word8 -> QC.Gen (TestSequenceNE Word8)
+splitAndReorderTestSequenceNE (x NE.:| []) = pure (LeafSequenceNE x)
+splitAndReorderTestSequenceNE (y NE.:| z : xs) = do
+  index <- QC.choose (0, length xs)
+  let (ys, zs) = splitAt index xs
+  NodeSequenceNE
+    <$> splitAndReorderTestSequenceNE (y NE.:| ys)
+    <*> splitAndReorderTestSequenceNE (z NE.:| zs)
+
+toListTestSequence :: Maybe (TestSequenceNE e) -> [e]
+toListTestSequence = maybe [] (NE.toList . toNonEmptyTestSequenceNE)
+
+splitAndReorderTestSequence :: [Word8] -> QC.Gen (Maybe (TestSequenceNE Word8))
+splitAndReorderTestSequence [] = pure Nothing
+splitAndReorderTestSequence (x : xs) = Just <$> splitAndReorderTestSequenceNE (x NE.:| xs)
+
+genTestSequence :: QC.Gen (TestSequence Word8)
+genTestSequence = do
+  xs <- QC.arbitrary
+  ys <- splitAndReorderTestSequence xs
+  predict <- QC.arbitrary
+  pure $ TestSequence (if predict then (Just (length (toListTestSequence ys))) else Nothing) ys
+
 -- | Generates a list of words and a 'Repeated' containing those same words in the same
 -- order, sometimes with a length prediction and sometimes without a length prediction.
 genRepeated :: QC.Gen ([Word8], Repeated Word8)
 genRepeated = do
-  predict <- QC.arbitrary
-  rightAssociative <- QC.arbitrary
-  xs <- QC.arbitrary
-  cs <- QC.shuffle xs
-  pure ( xs
-       , MkRepeated
-           (if predict then Just (length xs) else Nothing)
-           (\f -> foldMap f cs)
-           ( if rightAssociative
-               then (\f -> foldr (\x acc -> f x <> acc) mempty xs)
-               else (\f -> foldl (\acc x -> acc <> f x) mempty xs)
-           )
-       )
+  xs <- genTestSequence
+  let TestSequence _ (toListTestSequence -> ys) = xs
+  oddFactor <- (1 Bits..|.) <$> QC.arbitrary
+  f <- QC.frequency
+    [ (2, pure (Right (oddFactor *)))
+    , (1, pure (Left (\x -> if mod x 3 == 0 then Nothing else Just (oddFactor * x))))
+    , (1, pure (Left (\x -> if mod x 3 == 1 then Nothing else Just (oddFactor * x))))
+    ]
+  pure (either mapMaybe map f ys, MkRepeated f xs)
+
+validateRepeated :: (Eq e, Show e) => [e] -> Repeated e -> QC.Property
+validateRepeated expected = \case
+  MkRepeated (Left f) ys ->
+    foldMapRepeatedSource (foldMap (: []) . f) ys === expected
+  MkRepeated (Right f) ys ->
+    foldMapRepeatedSource ((: []) . f) ys === expected
+    QC..&&.
+    case predictRepeatedSource ys of
+      Nothing -> QC.property True
+      Just n -> n === length expected
+
+-- NOTE: This test verifies the test infrastructure against itself.
+-- It is not intended to check the code under test.
+test_genRepeated :: TestTree
+test_genRepeated =
+  QC.testProperty "genRepeated" $
+    QC.forAll genRepeated $
+      uncurry validateRepeated
 
 test_Eq_Repeated :: TestTree
 test_Eq_Repeated =
   QC.testProperty "Eq (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, x) ->
-    QC.forAll genRepeated $ \(ys, y) ->
-      (x == y) === (xs == ys)
+    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(ys, yr) ->
+      (xr == yr) === (xs == ys)
 
 test_IsList_Repeated :: TestTree
 test_IsList_Repeated =
   QC.testProperty "IsList (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, x) ->
-      GHC.Exts.toList x === xs
+    QC.forAll genRepeated $ \(xs, xr) ->
+      QC.counterexample "GHC.Exts.toList"
+        (GHC.Exts.toList xr === xs)
       QC..&&.
-      ( case GHC.Exts.fromList xs of
-          r@(MkRepeated mc us os) ->
-            os pure === xs
-            QC..&&.
-            sort (us pure) === sort xs
-            QC..&&.
-            (all @Maybe (== length xs) mc)
-            QC..&&.
-            r === x  -- this check is redundant with other checks
-      )
+      QC.counterexample "GHC.Exts.fromList"
+        ( case GHC.Exts.fromList xs of
+            xr'@(MkRepeated _ ys) ->
+              validateRepeated xs xr'
+              QC..&&.
+              xr' === xr
+              QC..&&.
+              predictRepeatedSource ys === Nothing
+        )
       QC..&&.
-      ( case GHC.Exts.fromListN (length xs) xs of
-          r@(MkRepeated mc us os) ->
-            os pure === xs
-            QC..&&.
-            sort (us pure) === sort xs
-            QC..&&.
-            mc === Just (length xs)
-            QC..&&.
-            r === x  -- this check is redundant with other checks
-      )
+      QC.counterexample "GHC.Exts.fromListN"
+        ( let n = length xs
+          in case GHC.Exts.fromListN n xs of
+            xr'@(MkRepeated _ ys) ->
+              validateRepeated xs xr'
+              QC..&&.
+              xr' === xr
+              QC..&&.
+              predictRepeatedSource ys === Just n
+        )
 
 test_Show_Repeated :: TestTree
 test_Show_Repeated =
   QC.testProperty "Show (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, x) ->
+    QC.forAll genRepeated $ \(xs, xr) ->
     QC.forAll (QC.choose (0, 12)) $ \d ->
-      showsPrec d x "xyz" === showsPrec d xs "xyz"
+      showsPrec d xr "xyz" === showsPrec d xs "xyz"
 
 test_Read_Repeated :: TestTree
 test_Read_Repeated =
-  QC.testProperty "Show (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, x) ->
-      readEither (show xs) === Right x  -- can consume expected form
+  QC.testProperty "Read (Repeated Word8)" $
+    QC.forAll genRepeated $ \(xs, xr) ->
+      readEither (show xs) === Right xr  -- can consume expected form
       QC..&&.
-      readEither (show x) === Right x  -- round trip with 'show'
+      readEither (show xr) === Right xr  -- round trip with 'show'
+
+test_Functor_Repeated :: TestTree
+test_Functor_Repeated =
+  QC.testProperty "Functor Repeated" $
+    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      GHC.Exts.toList (fmap (pivot -) xr) === map (pivot -) xs
 
 test_nullRepeated :: TestTree
 test_nullRepeated =
   QC.testProperty "nullRepeated" $
-    QC.forAll genRepeated $ \(xs, x) ->
-      nullRepeated x === null xs
+    QC.forAll genRepeated $ \(xs, xr) ->
+      nullRepeated xr === null xs
 
-test_mapRepeated :: TestTree
-test_mapRepeated =
-  QC.testProperty "mapRepeated" $
-    QC.forAll genRepeated $ \(xs, x) ->
-    QC.forAll QC.arbitrary $ \pivot ->
-      GHC.Exts.toList (mapRepeated (pivot -) x) === map (pivot -) xs
+test_toRepeated :: TestTree
+test_toRepeated =
+  QC.testProperty "toRepeated" $
+    QC.forAll genRepeated $ \(xs, xr) ->
+      GHC.Exts.toList (toRepeated xr) === xs
 
 test_reverseRepeated :: TestTree
 test_reverseRepeated =
   QC.testProperty "reverseRepeated" $
-    QC.forAll genRepeated $ \(xs, x) ->
-      GHC.Exts.toList (reverseRepeated x) === reverse xs
+    QC.forAll QC.arbitrary $ \(xs :: [Word8]) ->
+      GHC.Exts.toList (reverseRepeated xs) === reverse xs
+
+test_mapRepeated :: TestTree
+test_mapRepeated =
+  QC.testProperty "mapRepeated" $
+    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      GHC.Exts.toList (mapRepeated (pivot -) xr) === map (pivot -) xs
 
 test_reverseMapRepeated :: TestTree
 test_reverseMapRepeated =
   QC.testProperty "reverseMapRepeated" $
-    QC.forAll genRepeated $ \(xs, x) ->
-    QC.forAll QC.arbitrary $ \((1 Bits..|.) -> factor) ->
-      GHC.Exts.toList (reverseMapRepeated (factor *) x) === reverse (map (factor *) xs)
+    QC.forAll QC.arbitrary $ \(xs :: [Word8]) ->
+    QC.forAll QC.arbitrary $ \((1 Bits..|.) -> oddFactor) ->
+      GHC.Exts.toList (reverseMapRepeated (oddFactor *) xs) === map (oddFactor *) (reverse xs)
+
+test_mapMaybeRepeated :: TestTree
+test_mapMaybeRepeated =
+  QC.testProperty "mapMaybeRepeated" $
+    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f y
+            | even y = Nothing
+            | odd y = Just (pivot - y)
+      in GHC.Exts.toList (mapMaybeRepeated f xr) === mapMaybe f xs
+
+test_foldMapRepeated :: TestTree
+test_foldMapRepeated =
+  QC.testProperty "foldMapRepeated" $
+    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f y = [pivot - y]
+      in GHC.Exts.toList (foldMapRepeated f xr) === foldMap f xs
+
+test_ToRepeated_Repeated :: TestTree
+test_ToRepeated_Repeated =
+  QC.testProperty "ToRepeated (Repeated Word8) Word8" $
+    QC.forAll genRepeated $ \(xs, xr) ->
+      validateRepeated xs xr
+      QC..&&.
+      QC.counterexample "correctly ordered elements" (foldMapRepeated (: []) xr === xs)
+      QC..&&.
+      case xr of
+        MkRepeated (Left _) _ -> QC.property True
+        MkRepeated (Right _) ys -> case predictRepeatedSource ys of
+          Nothing -> QC.property True
+          Just count -> QC.counterexample "correct count prediction" (count === length xs)
 
 test_ToRepeated ::
   forall c e .
   ( ToRepeated c e
+  , ToRepeated (Reverse c) e
   , Show c
   , Typeable c
+  , Typeable e
   , Eq e
   , Ord e
   , Show e
@@ -940,24 +1153,36 @@ test_ToRepeated ::
   (c -> [e]) ->
   TestTree
 test_ToRepeated expectedCP gen cToList =
-  let cRep = typeRep (Proxy :: Proxy c) in
-  QC.testProperty (showString "toRepeated @(" $ showsTypeRep cRep ")") $
+  let cRep = typeRep (Proxy :: Proxy c)
+      eRep = typeRep (Proxy :: Proxy e)
+      testName = showString "ToRepeated " $ showsTypeRep cRep $ showChar ' ' $ showsTypeRep eRep ""
+  in QC.testProperty testName $
     QC.forAll gen $ \(c :: c) ->
-      let es = cToList c
-          MkRepeated mc (($ pure) -> unordered) (($ pure) -> observed) = toRepeated c
+      let xs :: [e]
+          xs = cToList c
+          xr, rr :: Repeated e
+          xr = toRepeated c
+          rr = reverseRepeated c
+          maybeCount :: Repeated e -> Maybe Int
+          maybeCount = \case
+            MkRepeated (Left _) _ -> Nothing
+            MkRepeated (Right _) ys -> predictRepeatedSource ys
       in
-        QC.counterexample "correctly ordered elements" (observed === es)
-        QC..&&.
-        QC.counterexample "correct set and multiplicity of unordered elements"
-          (sort unordered === sort es)
+        QC.counterexample "correctly ordered elements" (foldMapRepeated (: []) c === xs)
         QC..&&.
         QC.counterexample "correct count prediction if any"
-          (all @Maybe (== length es) mc)
+          (all @Maybe (== length xs) (maybeCount xr))
         QC..&&.
         case expectedCP of
           NoCP ->
-            QC.counterexample "no count prediction" (mc === Nothing)
+            QC.counterexample "no count prediction" (maybeCount xr === Nothing)
           CorrectCP ->
-            QC.counterexample "correct count prediction" (mc === Just (length es))
-          SameCP expected ->
-            QC.counterexample "unchanged count prediction" (mc === expected c)
+            QC.counterexample "correct count prediction" (maybeCount xr === Just (length xs))
+        QC..&&.
+        QC.counterexample "valid result from toRepeated" (validateRepeated xs xr)
+        QC..&&.
+        QC.counterexample "correctly reversed elements" (foldMapRepeated (: []) rr === reverse xs)
+        QC..&&.
+        QC.counterexample "same count prediction when reversed" (maybeCount rr === maybeCount xr)
+        QC..&&.
+        QC.counterexample "valid result from reverseRepeated" (validateRepeated (reverse xs) rr)

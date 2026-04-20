@@ -28,7 +28,6 @@
 {-# LANGUAGE CPP #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MagicHash #-}
-{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 
 module Proto3.Wire.Reverse
@@ -113,7 +112,8 @@ import           GHC.Exts                      ( plusAddr# )
 #endif
 import           GHC.ForeignPtr                ( ForeignPtr(..), ForeignPtrContents )
 import           GHC.TypeLits                  ( KnownNat, natVal' )
-import           Proto3.Wire.Encode.Repeated   ( Repeated(..), ToRepeated(..) )
+import           Proto3.Wire.Encode.Repeated   ( Repeated(..), ToRepeated(..),
+                                                 foldMapRepeated, toRepeated )
 import           Proto3.Wire.Reverse.Internal
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 
@@ -873,7 +873,7 @@ vectorBuildR f = etaBuildR (foldlRVector (\acc x -> acc <> f x) mempty)
 --
 -- See also: 'repeatedFixedPrimR', 'vectorBuildR'
 repeatedBuildR :: ToRepeated c BuildR => c -> BuildR
-repeatedBuildR = etaBuildR (\xs -> case toRepeated xs of MkRepeated _ _ os -> os id)
+repeatedBuildR = etaBuildR (foldMapRepeated id)
 {-# INLINE repeatedBuildR #-}
 
 -- | Concatenates the given fixed-width primitives, iterating right to left where practical
@@ -887,12 +887,14 @@ repeatedBuildR = etaBuildR (\xs -> case toRepeated xs of MkRepeated _ _ os -> os
 -- See also: 'repeatedBuildR'
 repeatedFixedPrimR :: forall c w . (ToRepeated c (Prim.FixedPrim w), KnownNat w) => c -> BuildR
 repeatedFixedPrimR = etaBuildR $ \xs -> case toRepeated xs of
-  MkRepeated mc _ os -> case mc of
+  MkRepeated (Left f) ys ->
+      foldMapRepeated (foldMap (Prim.liftBoundedPrim . Prim.liftFixedPrim) . f) ys
+  MkRepeated (Right f) ys -> case predictRepeatedSource ys of
     Nothing ->
-      os (\p -> Prim.liftBoundedPrim (Prim.liftFixedPrim p))
+      foldMapRepeated (Prim.liftBoundedPrim . Prim.liftFixedPrim . f) ys
     Just c ->
       let w = fromInteger (natVal' (proxy# :: Proxy# w))
-      in ensure (w * c) (os (\p -> Prim.unsafeBuildBoundedPrim (Prim.liftFixedPrim p)))
+      in ensure (w * c) (foldMapRepeated (Prim.unsafeBuildBoundedPrim . Prim.liftFixedPrim . f) ys)
 {-# INLINE repeatedFixedPrimR #-}
 
 -- | Exported for testing purposes only.
