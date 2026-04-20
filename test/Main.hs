@@ -71,8 +71,8 @@ import qualified Proto3.Wire.Encode    as Encode
 import           Proto3.Wire.Encode.Repeated
                                        ( Repeated(..), Reverse(..), ToRepeated(..),
                                          foldMapRepeated, mapRepeated, mapMaybeRepeated,
-                                         nullRepeated, reverseMapRepeated, reverseRepeated,
-                                         toRepeated )
+                                         nullRepeated, predictRepeated, reverseMapRepeated,
+                                         reverseRepeated, toRepeated )
 import qualified Proto3.Wire.Reverse   as Reverse
 import           Proto3.Wire.Types     ( WireType(..) )
 
@@ -985,83 +985,91 @@ genTestSequence = do
 
 -- | Generates a list of words and a 'Repeated' containing those same words in the same
 -- order, sometimes with a length prediction and sometimes without a length prediction.
-genRepeated :: QC.Gen ([Word8], Repeated Word8)
+-- Also reports any count prediction that we expect to be made by the generated 'Repeated'.
+genRepeated :: QC.Gen (Maybe Int, [Word8], Repeated Word8)
 genRepeated = do
   xs <- genTestSequence
-  let TestSequence _ (toListTestSequence -> ys) = xs
+  let TestSequence maybeCount (toListTestSequence -> ys) = xs
   oddFactor <- (1 Bits..|.) <$> QC.arbitrary
   f <- QC.frequency
     [ (2, pure (Right (oddFactor *)))
     , (1, pure (Left (\x -> if mod x 3 == 0 then Nothing else Just (oddFactor * x))))
     , (1, pure (Left (\x -> if mod x 3 == 1 then Nothing else Just (oddFactor * x))))
     ]
-  pure (either mapMaybe map f ys, MkRepeated f xs)
+  pure (either (const Nothing) (const maybeCount) f, either mapMaybe map f ys, MkRepeated f xs)
 
-validateRepeated :: (Eq e, Show e) => [e] -> Repeated e -> QC.Property
-validateRepeated expected = \case
+-- | Performs basic validation of a value of type 'Repeated' against
+-- the information it is expected to contain.  While these checks
+-- are sometimes redundant with the checks made by particular tests,
+-- it is probably better to check redundantly than to omit a check,
+-- and the extra time required for these particular checks is tiny.
+validateRepeated :: (Eq e, Show e) => Maybe Int -> [e] -> Repeated e -> QC.Property
+validateRepeated expectedMaybeCount expectedElements = \case
   MkRepeated (Left f) ys ->
-    foldMapRepeatedSource (foldMap (: []) . f) ys === expected
+    foldMapRepeatedSource (foldMap (: []) . f) ys === expectedElements
+    QC..&&.
+    Nothing === expectedMaybeCount
   MkRepeated (Right f) ys ->
-    foldMapRepeatedSource ((: []) . f) ys === expected
+    foldMapRepeatedSource ((: []) . f) ys === expectedElements
     QC..&&.
     case predictRepeatedSource ys of
-      Nothing -> QC.property True
-      Just n -> n === length expected
+      Nothing -> Nothing === expectedMaybeCount
+      Just n -> n === length expectedElements QC..&&. Just n === expectedMaybeCount
 
 -- NOTE: This test verifies the test infrastructure against itself.
 -- It is not intended to check the code under test.
 test_genRepeated :: TestTree
 test_genRepeated =
   QC.testProperty "genRepeated" $
-    QC.forAll genRepeated $
-      uncurry validateRepeated
+    QC.forAll genRepeated $ \(xc, xs, xr) ->
+      validateRepeated xc xs xr
 
 test_Eq_Repeated :: TestTree
 test_Eq_Repeated =
   QC.testProperty "Eq (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, xr) ->
-    QC.forAll genRepeated $ \(ys, yr) ->
+    QC.forAll genRepeated $ \(_, xs, xr) ->
+    QC.forAll genRepeated $ \(_, ys, yr) ->
       (xr == yr) === (xs == ys)
 
 test_IsList_Repeated :: TestTree
 test_IsList_Repeated =
   QC.testProperty "IsList (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(_, xs, xr) ->
       QC.counterexample "GHC.Exts.toList"
         (GHC.Exts.toList xr === xs)
       QC..&&.
       QC.counterexample "GHC.Exts.fromList"
-        ( case GHC.Exts.fromList xs of
-            xr'@(MkRepeated _ ys) ->
-              validateRepeated xs xr'
-              QC..&&.
-              xr' === xr
-              QC..&&.
-              predictRepeatedSource ys === Nothing
+        ( let xr' = GHC.Exts.fromList xs
+          in
+            validateRepeated Nothing xs xr'
+            QC..&&.
+            xr' === xr
+            QC..&&.
+            predictRepeated xr' === Nothing
         )
       QC..&&.
       QC.counterexample "GHC.Exts.fromListN"
         ( let n = length xs
-          in case GHC.Exts.fromListN n xs of
-            xr'@(MkRepeated _ ys) ->
-              validateRepeated xs xr'
-              QC..&&.
-              xr' === xr
-              QC..&&.
-              predictRepeatedSource ys === Just n
+              xr' = GHC.Exts.fromListN n xs
+          in
+            validateRepeated (Just n) xs xr'
+            QC..&&.
+            xr' === xr
+            QC..&&.
+            predictRepeated xr' === Just n
         )
 
 test_Show_Repeated :: TestTree
 test_Show_Repeated =
   QC.testProperty "Show (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(_, xs, xr) ->
     QC.forAll (QC.choose (0, 12)) $ \d ->
       showsPrec d xr "xyz" === showsPrec d xs "xyz"
 
 test_Read_Repeated :: TestTree
 test_Read_Repeated =
   QC.testProperty "Read (Repeated Word8)" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(_, xs, xr) ->
       readEither (show xs) === Right xr  -- can consume expected form
       QC..&&.
       readEither (show xr) === Right xr  -- round trip with 'show'
@@ -1069,21 +1077,25 @@ test_Read_Repeated =
 test_Functor_Repeated :: TestTree
 test_Functor_Repeated =
   QC.testProperty "Functor Repeated" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(xc, xs, xr) ->
     QC.forAll QC.arbitrary $ \pivot ->
       GHC.Exts.toList (fmap (pivot -) xr) === map (pivot -) xs
+      QC..&&.
+      predictRepeated (fmap (pivot -) xr) === xc
 
 test_nullRepeated :: TestTree
 test_nullRepeated =
   QC.testProperty "nullRepeated" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(_, xs, xr) ->
       nullRepeated xr === null xs
 
 test_toRepeated :: TestTree
 test_toRepeated =
   QC.testProperty "toRepeated" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(xc, xs, xr) ->
       GHC.Exts.toList (toRepeated xr) === xs
+      QC..&&.
+      predictRepeated (toRepeated xr) === xc
 
 test_reverseRepeated :: TestTree
 test_reverseRepeated =
@@ -1094,9 +1106,11 @@ test_reverseRepeated =
 test_mapRepeated :: TestTree
 test_mapRepeated =
   QC.testProperty "mapRepeated" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(xc, xs, xr) ->
     QC.forAll QC.arbitrary $ \pivot ->
       GHC.Exts.toList (mapRepeated (pivot -) xr) === map (pivot -) xs
+      QC..&&.
+      predictRepeated (mapRepeated (pivot -) xr) === xc
 
 test_reverseMapRepeated :: TestTree
 test_reverseMapRepeated =
@@ -1108,34 +1122,48 @@ test_reverseMapRepeated =
 test_mapMaybeRepeated :: TestTree
 test_mapMaybeRepeated =
   QC.testProperty "mapMaybeRepeated" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(_, xs, xr) ->
     QC.forAll QC.arbitrary $ \pivot ->
       let f y
             | even y = Nothing
             | odd y = Just (pivot - y)
-      in GHC.Exts.toList (mapMaybeRepeated f xr) === mapMaybe f xs
+      in
+        GHC.Exts.toList (mapMaybeRepeated f xr) === mapMaybe f xs
+        QC..&&.
+        predictRepeated (mapMaybeRepeated f xr) === Nothing
 
 test_foldMapRepeated :: TestTree
 test_foldMapRepeated =
   QC.testProperty "foldMapRepeated" $
-    QC.forAll genRepeated $ \(xs, xr) ->
+    QC.forAll genRepeated $ \(_, xs, xr) ->
     QC.forAll QC.arbitrary $ \pivot ->
       let f y = [pivot - y]
-      in GHC.Exts.toList (foldMapRepeated f xr) === foldMap f xs
+      in
+        GHC.Exts.toList (foldMapRepeated f xr) === foldMap f xs
+
+test_predictRepeated :: TestTree
+test_predictRepeated =
+  QC.testProperty "predictRepeated" $
+    QC.forAll genRepeated $ \(xc, xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f y = pivot - y
+          g y
+            | even y = Nothing
+            | otherwise = Just (pivot - y)
+      in
+        predictRepeated (mapRepeated f xr) === xc
+        QC..&&.
+        predictRepeated (mapMaybeRepeated g xr) === Nothing
 
 test_ToRepeated_Repeated :: TestTree
 test_ToRepeated_Repeated =
   QC.testProperty "ToRepeated (Repeated Word8) Word8" $
-    QC.forAll genRepeated $ \(xs, xr) ->
-      validateRepeated xs xr
+    QC.forAll genRepeated $ \(xc, xs, xr) ->
+      validateRepeated xc xs xr
       QC..&&.
       QC.counterexample "correctly ordered elements" (foldMapRepeated (: []) xr === xs)
       QC..&&.
-      case xr of
-        MkRepeated (Left _) _ -> QC.property True
-        MkRepeated (Right _) ys -> case predictRepeatedSource ys of
-          Nothing -> QC.property True
-          Just count -> QC.counterexample "correct count prediction" (count === length xs)
+      QC.counterexample "expected count prediction" (predictRepeated xr === xc)
 
 test_ToRepeated ::
   forall c e .
@@ -1163,26 +1191,24 @@ test_ToRepeated expectedCP gen cToList =
           xr, rr :: Repeated e
           xr = toRepeated c
           rr = reverseRepeated c
-          maybeCount :: Repeated e -> Maybe Int
-          maybeCount = \case
-            MkRepeated (Left _) _ -> Nothing
-            MkRepeated (Right _) ys -> predictRepeatedSource ys
+          expectedMaybeCount :: Maybe Int
+          expectedMaybeCount = case expectedCP of
+            NoCP -> Nothing
+            CorrectCP -> Just (length xs)
       in
         QC.counterexample "correctly ordered elements" (foldMapRepeated (: []) c === xs)
         QC..&&.
         QC.counterexample "correct count prediction if any"
-          (all @Maybe (== length xs) (maybeCount xr))
+          (all @Maybe (== length xs) (predictRepeated xr))
         QC..&&.
-        case expectedCP of
-          NoCP ->
-            QC.counterexample "no count prediction" (maybeCount xr === Nothing)
-          CorrectCP ->
-            QC.counterexample "correct count prediction" (maybeCount xr === Just (length xs))
+        QC.counterexample "expected count prediction" (predictRepeated xr === expectedMaybeCount)
         QC..&&.
-        QC.counterexample "valid result from toRepeated" (validateRepeated xs xr)
+        QC.counterexample "valid result from toRepeated" (validateRepeated expectedMaybeCount xs xr)
         QC..&&.
         QC.counterexample "correctly reversed elements" (foldMapRepeated (: []) rr === reverse xs)
         QC..&&.
-        QC.counterexample "same count prediction when reversed" (maybeCount rr === maybeCount xr)
+        QC.counterexample "same count prediction when reversed"
+          (predictRepeated rr === predictRepeated xr)
         QC..&&.
-        QC.counterexample "valid result from reverseRepeated" (validateRepeated (reverse xs) rr)
+        QC.counterexample "valid result from reverseRepeated"
+          (validateRepeated expectedMaybeCount (reverse xs) rr)

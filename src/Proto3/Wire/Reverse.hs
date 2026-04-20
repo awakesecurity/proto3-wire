@@ -29,6 +29,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE MagicHash #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ViewPatterns #-}
 
 module Proto3.Wire.Reverse
     ( -- * `BuildR` type
@@ -112,8 +113,8 @@ import           GHC.Exts                      ( plusAddr# )
 #endif
 import           GHC.ForeignPtr                ( ForeignPtr(..), ForeignPtrContents )
 import           GHC.TypeLits                  ( KnownNat, natVal' )
-import           Proto3.Wire.Encode.Repeated   ( Repeated(..), ToRepeated(..),
-                                                 foldMapRepeated, toRepeated )
+import           Proto3.Wire.Encode.Repeated   ( ToRepeated, foldMapRepeated,
+                                                 predictRepeated, toRepeated )
 import           Proto3.Wire.Reverse.Internal
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 
@@ -886,15 +887,12 @@ repeatedBuildR = etaBuildR (foldMapRepeated id)
 --
 -- See also: 'repeatedBuildR'
 repeatedFixedPrimR :: forall c w . (ToRepeated c (Prim.FixedPrim w), KnownNat w) => c -> BuildR
-repeatedFixedPrimR = etaBuildR $ \xs -> case toRepeated xs of
-  MkRepeated (Left f) ys ->
-      foldMapRepeated (foldMap (Prim.liftBoundedPrim . Prim.liftFixedPrim) . f) ys
-  MkRepeated (Right f) ys -> case predictRepeatedSource ys of
-    Nothing ->
-      foldMapRepeated (Prim.liftBoundedPrim . Prim.liftFixedPrim . f) ys
-    Just c ->
-      let w = fromInteger (natVal' (proxy# :: Proxy# w))
-      in ensure (w * c) (foldMapRepeated (Prim.unsafeBuildBoundedPrim . Prim.liftFixedPrim . f) ys)
+repeatedFixedPrimR = etaBuildR $ \(toRepeated -> xs) -> case predictRepeated xs of
+  Nothing ->
+    foldMapRepeated (Prim.liftBoundedPrim . Prim.liftFixedPrim) xs
+  Just c ->
+    let w = fromInteger (natVal' (proxy# :: Proxy# w))
+    in ensure (w * c) (foldMapRepeated (Prim.unsafeBuildBoundedPrim . Prim.liftFixedPrim) xs)
 {-# INLINE repeatedFixedPrimR #-}
 
 -- | Exported for testing purposes only.

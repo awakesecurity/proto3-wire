@@ -37,6 +37,7 @@ module Proto3.Wire.Encode.Repeated
   , reverseMapRepeated
   , mapMaybeRepeated
   , foldMapRepeated
+  , predictRepeated
   , Reverse(..)
   , ToRepeated(..)
   ) where
@@ -73,8 +74,9 @@ data Repeated e
       -- | Maps and optionally filters the elements of the sequence.
       --
       -- Note that mapping preserves the utility of 'predictRepeatedSource',
-      -- whereas filtering invalidates such predictions.  Therefore it
-      -- is best to avoid 'Left' values that always return 'Just'.
+      -- whereas filtering invalidates such predictions.  Therefore
+      -- it is best to avoid 'Left' values that always return 'Just';
+      -- instead strip off the unconditional 'Just' and use 'Right'.
       Either (a -> Maybe e) (a -> e) ->
       -- | The container providing the sequence.
       c ->
@@ -178,6 +180,22 @@ foldMapRepeatedRepeated :: Monoid m => (e -> m) -> Repeated e -> m
 foldMapRepeatedRepeated g (MkRepeated (Left f) xs) = foldMapRepeatedSource (foldMap g . f) xs
 foldMapRepeatedRepeated g (MkRepeated (Right f) xs) = foldMapRepeatedSource (g . f) xs
 {-# INLINE [1] foldMapRepeatedRepeated #-}
+
+-- | May predict the number of elements in the sequence, but does
+-- so only when it is practical to do so accurately and quickly.
+--
+-- More specifically, this function delegates to 'predictRepeatedSource'
+-- but only when the source sequence has not been filtered by functions
+-- such as 'mapMaybeRepeated', and 'predictRepeatedSource' may itself
+-- decline to predict the number of elements in the source sequence.
+--
+-- For example, it is easy to predict the length of a vector, but
+-- we would have to prescan a lazy list to discover its length.
+predictRepeated :: ToRepeated c e => c -> Maybe Int
+predictRepeated xs = case toRepeated xs of
+  MkRepeated (Left _) _ -> Nothing
+  MkRepeated (Right _) ys -> predictRepeatedSource ys
+{-# INLINE predictRepeated #-}
 
 -- | For each container type, specifies the optimal method for reverse iteration.
 --
