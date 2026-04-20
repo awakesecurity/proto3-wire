@@ -923,6 +923,9 @@ toRepeatedTests = testGroup "ToRepeated"
   , test_ToRepeated NoCP QC.arbitrary Data.IntSet.toAscList
   , test_ToRepeated CorrectCP QC.arbitrary (Data.Map.Lazy.toAscList @Int8 @Word8)
   , test_ToRepeated NoCP QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
+  , test_RULES_toRepeated_Repeated
+  , test_RULES_mapRepeated_Repeated
+  , test_RULES_mapMaybeRepeated_Repeated
   ]
 
 data TestSequenceNE e = LeafSequenceNE e | NodeSequenceNE (TestSequenceNE e) (TestSequenceNE e)
@@ -1212,3 +1215,44 @@ test_ToRepeated expectedCP gen cToList =
         QC..&&.
         QC.counterexample "valid result from reverseRepeated"
           (validateRepeated expectedMaybeCount (reverse xs) rr)
+
+test_RULES_toRepeated_Repeated :: TestTree
+test_RULES_toRepeated_Repeated =
+  QC.testProperty "RULES toRepeated@Repeated" $
+    QC.forAll genRepeated $ \(_, _, xr :: Repeated Word8) ->
+      toRepeated xr === toRepeated_NOINLINE xr
+
+test_RULES_mapRepeated_Repeated :: TestTree
+test_RULES_mapRepeated_Repeated =
+  QC.testProperty "RULES mapRepeated@Repeated" $
+    QC.forAll genRepeated $ \(_, _, xr :: Repeated Word8) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f y = pivot - y
+      in
+        mapRepeated f xr === mapRepeated_NOINLINE f xr
+
+test_RULES_mapMaybeRepeated_Repeated :: TestTree
+test_RULES_mapMaybeRepeated_Repeated =
+  QC.testProperty "RULES mapMaybeRepeated@Repeated" $
+    QC.forAll genRepeated $ \(_, _, xr :: Repeated Word8) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let g y
+            | even y = Nothing
+            | otherwise = Just (pivot - y)
+      in
+        mapMaybeRepeated g xr === mapMaybeRepeated_NOINLINE g xr
+
+-- | @NOINLINE@ and still polymorphic in order to avoid triggering rewrite rules.
+toRepeated_NOINLINE :: ToRepeated c e => c -> Repeated e
+toRepeated_NOINLINE = toRepeated
+{-# NOINLINE toRepeated_NOINLINE #-}
+
+-- | @NOINLINE@ and still polymorphic in order to avoid triggering rewrite rules.
+mapRepeated_NOINLINE :: ToRepeated c a => (a -> e) -> c -> Repeated e
+mapRepeated_NOINLINE = mapRepeated
+{-# NOINLINE mapRepeated_NOINLINE #-}
+
+-- | @NOINLINE@ and still polymorphic in order to avoid triggering rewrite rules.
+mapMaybeRepeated_NOINLINE :: ToRepeated c a => (a -> Maybe e) -> c -> Repeated e
+mapMaybeRepeated_NOINLINE = mapMaybeRepeated
+{-# NOINLINE mapMaybeRepeated_NOINLINE #-}

@@ -25,6 +25,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE MagicHash #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RoleAnnotations #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -112,7 +113,7 @@ import qualified Data.Vector.Generic
 import           Foreign                       ( Storable(..) )
 import           GHC.Exts                      ( Addr#, Int#, Proxy#,
                                                  RealWorld, State#, (+#),
-                                                 and#, inline, or#,
+                                                 and#, inline, oneShot, or#,
                                                  plusAddr#, plusWord#, proxy#,
                                                  uncheckedShiftRL# )
 import           GHC.IO                        ( IO(..) )
@@ -305,10 +306,21 @@ unsafeLiftBoundedPrim = \w (BoundedPrim f) -> ensure# w f
 --
 -- (If GHC learns to consolidate address offsets automatically
 -- then we might be able to just use 'BoundedPrim' instead.)
-newtype FixedPrim (w :: Nat) = FixedPrim
-  ( Addr# -> Int# -> State# RealWorld -> Int# ->
-    (# Addr#, Int#, State# RealWorld #)
-  )
+newtype FixedPrim (w :: Nat) =
+  -- | If you directly use this constructor, without also using 'oneShot',
+  -- then the compiler may allocate a function object on the heap.  That
+  -- is almost never desirable, especially for primitive combinators.
+  MemoFixedPrim (Addr# -> Int# -> State# RealWorld -> Int# -> (# Addr#, Int#, State# RealWorld #))
+
+{-# COMPLETE FixedPrim #-}
+
+-- | This pattern synonym uses 'oneShot' as described in the comments for 'FixedPrim'.
+pattern FixedPrim ::
+  (Addr# -> Int# -> State# RealWorld -> Int# -> (# Addr#, Int#, State# RealWorld #)) ->
+  FixedPrim w
+pattern FixedPrim f <- MemoFixedPrim f
+  where
+    FixedPrim f = MemoFixedPrim (oneShot (\v -> oneShot (\u -> oneShot (\s -> oneShot (\o -> f v u s o)))))
 
 type role FixedPrim nominal
 
