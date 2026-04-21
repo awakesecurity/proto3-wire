@@ -320,7 +320,8 @@ pattern FixedPrim ::
   FixedPrim w
 pattern FixedPrim f <- MemoFixedPrim f
   where
-    FixedPrim f = MemoFixedPrim (oneShot (\v -> oneShot (\u -> oneShot (\s -> oneShot (\o -> f v u s o)))))
+    FixedPrim f = MemoFixedPrim
+      (oneShot (\v -> oneShot (\u -> oneShot (\s -> oneShot (\o -> f v u s o)))))
 
 type role FixedPrim nominal
 
@@ -356,12 +357,13 @@ instance PMEmpty FixedPrim 0
 
 -- | Executes the given fixed primitive and adjusts the current address.
 liftFixedPrim :: forall w . KnownNat w => FixedPrim w -> BoundedPrim w
-liftFixedPrim = \(FixedPrim f) -> BoundedPrim (BuildR (g f))
-  where
-    !(I# o) = - fromInteger (natVal' (proxy# :: Proxy# w))
-    g = \f v0 u0 s0 -> case f v0 u0 s0 o of
-      (# v1, u1, s1 #) -> (# plusAddr# v1 o, u1 +# o, s1 #)
-    {-# INLINE g #-}
+liftFixedPrim = \(FixedPrim f) ->
+  let !(I# o) = - fromInteger (natVal' (proxy# :: Proxy# w))
+      g = \v0 u0 s0 -> case f v0 u0 s0 o of
+        (# v1, u1, s1 #) -> (# plusAddr# v1 o, u1 +# o, s1 #)
+      {-# INLINE g #-}
+  in
+    BoundedPrim (BuildR g)
 {-# INLINE CONLIKE [1] liftFixedPrim #-}
 
 {-# RULES
@@ -417,11 +419,11 @@ type instance StorableWidth Double = 8
 
 -- | WARNING: The write may be unaligned; check 'storeMethod' first.
 primPoke :: Storable x => x -> FixedPrim (StorableWidth x)
-primPoke !x = FixedPrim p
-  where
-    p v u s0 o =
+primPoke !x = FixedPrim
+  ( \v u s0 o ->
       let IO q = pokeByteOff (Ptr v) (I# o) x
       in case q s0 of (# s1, (_ :: ()) #) -> (# v, u, s1 #)
+  )
 
 -- | Fixed-width primitive that writes a single byte as-is.
 word8 :: Word8 -> FixedPrim 1
@@ -597,24 +599,24 @@ floatNative = float systemByteOrder
 -- | Fixed-width primitive that writes a 'Float'
 -- in big-endian byte order.
 floatBE :: Float -> FixedPrim 4
-floatBE !x = FixedPrim g
-  where
-    g v u s0 o = case floatToWord32 (Ptr v) (I# u) x of
+floatBE !x = FixedPrim
+  ( \v u s0 o -> case floatToWord32 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word32BE y
           in f v u s1 o
+  )
 
 -- | Fixed-width primitive that writes a 'Float'
 -- in little-endian byte order.
 floatLE :: Float -> FixedPrim 4
-floatLE !x = FixedPrim g
-  where
-    g v u s0 o = case floatToWord32 (Ptr v) (I# u) x of
+floatLE !x = FixedPrim
+  ( \v u s0 o -> case floatToWord32 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word32LE y
           in f v u s1 o
+  )
 
 -- | Fixed-width primitive that writes a 'Double'
 -- in the specified byte order.
@@ -630,24 +632,24 @@ doubleNative = double systemByteOrder
 -- | Fixed-width primitive that writes a 'Double'
 -- in big-endian byte order.
 doubleBE :: Double -> FixedPrim 8
-doubleBE !x = FixedPrim g
-  where
-    g v u s0 o = case doubleToWord64 (Ptr v) (I# u) x of
+doubleBE !x = FixedPrim
+  ( \v u s0 o -> case doubleToWord64 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word64BE y
           in f v u s1 o
+  )
 
 -- | Fixed-width primitive that writes a 'Double'
 -- in little-endian byte order.
 doubleLE :: Double -> FixedPrim 8
-doubleLE !x = FixedPrim g
-  where
-    g v u s0 o = case doubleToWord64 (Ptr v) (I# u) x of
+doubleLE !x = FixedPrim
+  ( \v u s0 o -> case doubleToWord64 (Ptr v) (I# u) x of
       IO h -> case h s0 of
         (# s1, y #) ->
           let FixedPrim f = word64LE y
           in f v u s1 o
+  )
 
 -- | Bounded-width primitive that writes a 'Char'
 -- according to the UTF-8 encoding.
