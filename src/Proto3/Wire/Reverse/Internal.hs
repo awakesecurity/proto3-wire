@@ -711,10 +711,12 @@ ensure :: Int -> BuildR -> BuildR
 ensure (I# required) f = ensure# required f
 
 ensure# :: Int# -> BuildR -> BuildR
-ensure# required (BuildR f) = BuildR $ \v u s ->
-  if I# required <= I# u
-    then f v u s
-    else let BuildR g = BuildR f <> reallocate# required in g v u s
+ensure# required (BuildR f) = BuildR $ \v0 u0 s0 ->
+  let BuildR g
+        | I# required <= I# u0 = mempty
+        | otherwise = reallocate# required
+  in case g v0 u0 s0 of
+    (# v1, u1, s1 #) -> f v1 u1 s1
 
 -- | ASSUMES that the specified number of bytes is both nonnegative and
 -- less than or equal to the number of unused bytes in the current buffer,
