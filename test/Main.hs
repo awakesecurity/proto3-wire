@@ -69,10 +69,9 @@ import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Decode    as Decode
 import qualified Proto3.Wire.Encode    as Encode
 import           Proto3.Wire.Encode.Repeated
-                                       ( Repeated(..), Reverse(..), ToRepeated(..),
+                                       ( Count(..), Repeated(..), Reverse(..), ToRepeated(..),
                                          foldMapRepeated, mapRepeated, mapMaybeRepeated,
-                                         nullRepeated, predictRepeated, reverseMapRepeated,
-                                         reverseRepeated, toRepeated )
+                                         nullRepeated, predictRepeated, toRepeated )
 import qualified Proto3.Wire.Reverse   as Reverse
 import           Proto3.Wire.Types     ( WireType(..) )
 
@@ -906,9 +905,7 @@ toRepeatedTests = testGroup "ToRepeated"
   , test_Functor_Repeated
   , test_nullRepeated
   , test_toRepeated
-  , test_reverseRepeated
   , test_mapRepeated
-  , test_reverseMapRepeated
   , test_mapMaybeRepeated
   , test_foldMapRepeated
   , test_ToRepeated_Repeated
@@ -1100,12 +1097,6 @@ test_toRepeated =
       QC..&&.
       predictRepeated (toRepeated xr) === xc
 
-test_reverseRepeated :: TestTree
-test_reverseRepeated =
-  QC.testProperty "reverseRepeated" $
-    QC.forAll QC.arbitrary $ \(xs :: [Word8]) ->
-      GHC.Exts.toList (reverseRepeated xs) === reverse xs
-
 test_mapRepeated :: TestTree
 test_mapRepeated =
   QC.testProperty "mapRepeated" $
@@ -1114,13 +1105,6 @@ test_mapRepeated =
       GHC.Exts.toList (mapRepeated (pivot -) xr) === map (pivot -) xs
       QC..&&.
       predictRepeated (mapRepeated (pivot -) xr) === xc
-
-test_reverseMapRepeated :: TestTree
-test_reverseMapRepeated =
-  QC.testProperty "reverseMapRepeated" $
-    QC.forAll QC.arbitrary $ \(xs :: [Word8]) ->
-    QC.forAll QC.arbitrary $ \((1 Bits..|.) -> oddFactor) ->
-      GHC.Exts.toList (reverseMapRepeated (oddFactor *) xs) === map (oddFactor *) (reverse xs)
 
 test_mapMaybeRepeated :: TestTree
 test_mapMaybeRepeated =
@@ -1149,6 +1133,7 @@ test_predictRepeated =
   QC.testProperty "predictRepeated" $
     QC.forAll genRepeated $ \(xc, xs, xr) ->
     QC.forAll QC.arbitrary $ \pivot ->
+    QC.forAll QC.arbitrary $ \probablyIncorrectCount ->
       let f y = pivot - y
           g y
             | even y = Nothing
@@ -1157,6 +1142,8 @@ test_predictRepeated =
         predictRepeated (mapRepeated f xr) === xc
         QC..&&.
         predictRepeated (mapMaybeRepeated g xr) === Nothing
+        QC..&&.
+        predictRepeated (UnsafeCount probablyIncorrectCount xs) === Just probablyIncorrectCount
 
 test_ToRepeated_Repeated :: TestTree
 test_ToRepeated_Repeated =
@@ -1193,7 +1180,7 @@ test_ToRepeated expectedCP gen cToList =
           xs = cToList c
           xr, rr :: Repeated e
           xr = toRepeated c
-          rr = reverseRepeated c
+          rr = toRepeated (Reverse c)
           expectedMaybeCount :: Maybe Int
           expectedMaybeCount = case expectedCP of
             NoCP -> Nothing

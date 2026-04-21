@@ -22,23 +22,24 @@
 {-# LANGUAGE FunctionalDependencies #-}
 {-# LANGUAGE GADTs #-}
 {-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE PatternSynonyms #-}
 {-# LANGUAGE PolyKinds #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Presents right-associative folds as 'Foldable' sequences.
 module Proto3.Wire.Encode.Repeated
   ( Repeated(..)
   , nullRepeated
   , toRepeated
-  , reverseRepeated
   , mapRepeated
-  , reverseMapRepeated
   , mapMaybeRepeated
   , foldMapRepeated
   , predictRepeated
   , Reverse(..)
+  , Count(Count, ..)
   , ToRepeated(..)
   ) where
 
@@ -95,7 +96,7 @@ instance GHC.Exts.IsList (Repeated e)
     fromList xs = MkRepeated (Right id) xs
     {-# INLINE fromList #-}
 
-    fromListN n xs = MkRepeated (Right id) (CountedList n xs)
+    fromListN n xs = MkRepeated (Right id) (UnsafeCount n xs)
     {-# INLINE fromListN #-}
 
     toList (MkRepeated (Left f) xs) = appEndo (foldMapRepeatedSource (Endo . maybe id (:) . f) xs) []
@@ -136,11 +137,6 @@ toRepeated = mapRepeated id
       forall xs . toRepeated xs = xs
   #-}
 
--- | Equivalent to @'toRepeated' . 'Reverse'@.
-reverseRepeated :: ToRepeated (Reverse c) e => c -> Repeated e
-reverseRepeated = toRepeated . Reverse
-{-# INLINE reverseRepeated #-}
-
 -- | Maps a function over the elements of a 'Repeated' sequence.
 mapRepeated :: ToRepeated c a => (a -> e) -> c -> Repeated e
 mapRepeated f xs = MkRepeated (Right f) xs
@@ -153,11 +149,6 @@ mapRepeated f xs = MkRepeated (Right f) xs
 mapRepeatedRepeated :: (a -> e) -> Repeated a -> Repeated e
 mapRepeatedRepeated f (MkRepeated g xs) = MkRepeated (bimap (fmap f .) (f .) g) xs
 {-# INLINE mapRepeatedRepeated #-}
-
--- | Equivalent to @'mapRepeated' . 'Reverse'@.
-reverseMapRepeated :: ToRepeated (Reverse c) a => (a -> e) -> c -> Repeated e
-reverseMapRepeated = \f -> mapRepeated f . Reverse
-{-# INLINE reverseMapRepeated #-}
 
 -- | Maps and filters a 'Repeated' sequence.
 mapMaybeRepeated :: ToRepeated c a => (a -> Maybe e) -> c -> Repeated e
@@ -204,7 +195,7 @@ predictRepeated xs = case toRepeated xs of
 -- any special features that speed iteration in the indicated order.  (The exception
 -- is the instance for 'Repeated' itself, for which there is no general reversal.)
 --
--- See Also: 'reverseRepeated', 'reverseMapRepeated'
+-- See Also: 'Reverse'
 class ToRepeated c e | c -> e
   where
     -- | Optionally predicts the number of elements in the sequence.  Predict
@@ -248,7 +239,7 @@ instance ToRepeated (Repeated e) e
     foldMapRepeatedSource f (MkRepeated (Right g) xs) = foldMapRepeatedSource (f . g) xs
     {-# INLINE foldMapRepeatedSource #-}
 
--- | In the eyes of 'ToRepeated', reverses the order of a sequence.  But
+-- | As viewed through 'ToRepeated', reverses the order of a sequence.  But
 -- this conceptual reversal cannot alter its performance characteristics.
 --
 -- For example, conceptually reversing @"CBA"@ is functionally
@@ -263,8 +254,38 @@ instance ToRepeated (Repeated e) e
 -- they are vectors in order to exploit those features.
 newtype Reverse c = Reverse c
 
--- | Note that @'Reverse' [e]@ performs better, but requires
--- that you arrange to build the list in reverse order.
+-- | As viewed through 'ToRepeated', predicts the number of elements in a sequence,
+-- replacing the behavior of 'predictRepeatedSource' for the underlying sequence.
+--
+-- For example, if you happen to know the length of a list specifying the elements
+-- of a repeated field of fixed-width type, you can improve encoder performance by
+-- providing that information to the encoder by means of this wrapper.
+--
+-- 'Count' should be the outer wrapper if 'Reverse' is also used.  That way
+-- the generic instance of 'ToRepeated' for 'Counter' can apply, regardless
+-- of the more specific instance for 'Reverse' of a specific sequence type.
+data Count c = UnsafeCount Int c
+  -- ^ This data constructor is unsafe because it /ASSUMES/ the element count is accurate.
+  -- See 'predictRepeatedSource' for what can happen if this count is incorrect.
+
+{-# COMPLETE Count #-}
+
+pattern Count :: Int -> c -> Count c
+pattern Count n c <- UnsafeCount n c
+
+instance ToRepeated c e =>
+         ToRepeated (Count c) e
+  where
+    predictRepeatedSource = \(Count n _) -> Just n
+    {-# INLINE predictRepeatedSource #-}
+
+    foldMapRepeatedSource = \f (Count _ xs) -> foldMapRepeatedSource f xs
+    {-# INLINE foldMapRepeatedSource #-}
+
+-- | Presents the elements of a list in order.
+--
+-- Note that @'Reverse' [e]@ performs better, but
+-- requires you to build the list in reverse order.
 instance ToRepeated [e] e
   where
     predictRepeatedSource = \_ -> Nothing
@@ -275,31 +296,16 @@ instance ToRepeated [e] e
       -- but we think that explicitly reversing the list would be slower.
     {-# INLINE foldMapRepeatedSource #-}
 
+-- | Presents the elements of a list in /reverse/ order.
+--
+-- Performs better than plain @[e]@, but requires
+-- that you to build the list in reverse order.
 instance ToRepeated (Reverse [e]) e
   where
     predictRepeatedSource = \_ -> Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMapRepeatedSource (Dual . f) xs)
-    {-# INLINE foldMapRepeatedSource #-}
-
-data CountedList e = CountedList Int [e]
-
-instance ToRepeated (CountedList e) e
-  where
-    predictRepeatedSource (CountedList n _) = Just n
-    {-# INLINE predictRepeatedSource #-}
-
-    foldMapRepeatedSource = \f (CountedList _ xs) -> foldMap f xs
-    {-# INLINE foldMapRepeatedSource #-}
-
-instance ToRepeated (Reverse (CountedList e)) e
-  where
-    predictRepeatedSource (Reverse (CountedList n _)) = Just n
-    {-# INLINE predictRepeatedSource #-}
-
-    foldMapRepeatedSource =
-      \f (Reverse (CountedList _ xs)) -> getDual (foldMapRepeatedSource (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (Dual . f) xs)
     {-# INLINE foldMapRepeatedSource #-}
 
 instance ToRepeated (NonEmpty e) e
@@ -317,7 +323,7 @@ instance ToRepeated (Reverse (NonEmpty e)) e
     predictRepeatedSource = \_ -> Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMapRepeatedSource (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (Dual . f) xs)
     {-# INLINE foldMapRepeatedSource #-}
 
 instance ToRepeated (Identity a) a
