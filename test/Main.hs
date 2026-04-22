@@ -69,7 +69,7 @@ import qualified Proto3.Wire.Builder   as Builder
 import qualified Proto3.Wire.Decode    as Decode
 import qualified Proto3.Wire.Encode    as Encode
 import           Proto3.Wire.Encode.Repeated
-                                       ( Count(..), Repeated(..), Reverse(..), ToRepeated(..),
+                                       ( Count(..), Repeated, Reverse(..), ToRepeated(..),
                                          foldMapRepeated, mapFoldRepeated, mapMaybeRepeated,
                                          mapRepeated, nullRepeated, predictRepeated, toRepeated )
 import qualified Proto3.Wire.Reverse   as Reverse
@@ -997,8 +997,8 @@ genRepeated = do
     , (1, pure (Right (\(fromIntegral -> x) -> if mod x 3 == 1 then [] else [oddFactor * x, x])))
     ]
   pure $ case f of
-    Left g -> (maybeCount, map g ys, MapRepeated g xs)
-    Right g -> (Nothing, concatMap g ys, BindRepeated (\j -> foldMap j . g) xs)
+    Left g -> (maybeCount, map g ys, mapRepeated g xs)
+    Right g -> (Nothing, concatMap g ys, mapFoldRepeated (\j -> foldMap j . g) xs)
 
 -- | Performs basic validation of a value of type 'Repeated' against
 -- the information it is expected to contain.  While these checks
@@ -1006,17 +1006,14 @@ genRepeated = do
 -- it is probably better to check redundantly than to omit a check,
 -- and the extra time required for these particular checks is tiny.
 validateRepeated :: (Eq e, Show e) => Maybe Int -> [e] -> Repeated e -> QC.Property
-validateRepeated expectedMaybeCount expectedElements = \case
-  MapRepeated g ys ->
-    foldMapRepeatedSource ((: []) . g) ys === expectedElements
-    QC..&&.
-    case predictRepeatedSource ys of
-      Nothing -> Nothing === expectedMaybeCount
-      Just n -> n === length expectedElements QC..&&. Just n === expectedMaybeCount
-  BindRepeated g ys ->
-    foldMapRepeatedSource (g (: [])) ys === expectedElements
-    QC..&&.
-    Nothing === expectedMaybeCount
+validateRepeated expectedMaybeCount expectedElements xr =
+  foldMapRepeatedSource (: []) xr === expectedElements
+  QC..&&.
+  predictRepeated xr === expectedMaybeCount
+  QC..&&.
+  case expectedMaybeCount of
+    Nothing -> QC.property True
+    Just n -> n === length expectedElements
 
 -- NOTE: This test verifies the test infrastructure against itself.
 -- It is not intended to check the code under test.

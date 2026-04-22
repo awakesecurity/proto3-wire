@@ -31,7 +31,7 @@
 
 -- | Presents right-associative folds as 'Foldable' sequences.
 module Proto3.Wire.Encode.Repeated
-  ( Repeated(..)
+  ( Repeated
   , nullRepeated
   , predictRepeated
   , foldMapRepeated
