@@ -35,6 +35,7 @@ module Proto3.Wire.Encode.Repeated
   , nullRepeated
   , predictRepeated
   , foldMapRepeated
+  , foldMapRepeated'
   , toRepeated
   , mapRepeated
   , mapMaybeRepeated
@@ -58,9 +59,12 @@ import Data.Vector qualified
 import Data.Vector.Storable qualified
 import Data.Vector.Unboxed qualified
 import Foreign (Storable)
-import GHC.Exts (inline)
+import GHC.Exts (inline, oneShot)
 import GHC.Exts qualified (IsList(..))
 import Text.Read (Read(..))
+
+import Data.Foldable (foldMap')
+import Data.Semigroup (Sum(..))
 
 -- | Expresses a sequence of values for encoding as a repeated field.
 --
@@ -97,7 +101,7 @@ data Repeated e
 instance Functor Repeated
   where
     fmap f (MapRepeated g xs) = MapRepeated (\x -> f (g x)) xs
-    fmap f (BindRepeated g xs) = BindRepeated (\j -> g (\y -> j (f y))) xs
+    fmap f (BindRepeated g xs) = BindRepeated (\j x -> g (\y -> j (f y)) x) xs
     {-# INLINE fmap #-}
 
 instance GHC.Exts.IsList (Repeated e)
@@ -109,7 +113,7 @@ instance GHC.Exts.IsList (Repeated e)
     fromListN n xs = MapRepeated id (UnsafeCount n xs)
 
     toList (MapRepeated g xs) = appEndo (foldMapRepeatedSource (\x -> Endo (g x :)) xs) []
-    toList (BindRepeated g xs) = appEndo (foldMapRepeatedSource (g (\y -> Endo (y :))) xs) []
+    toList (BindRepeated g xs) = appEndo (foldMapRepeatedSource (\x -> g (\y -> Endo (y :)) x) xs) []
 
 instance Eq e =>
          Eq (Repeated e)
@@ -133,7 +137,7 @@ nullRepeated (MapRepeated _ xs) =
     Just c -> c <= 0
     Nothing -> getAll (getDual (foldMapRepeatedSource (\_ -> Dual (All False)) xs))
 nullRepeated (BindRepeated g xs) =
-  getAll (getDual (foldMapRepeatedSource (g (\_ -> Dual (All False))) xs))
+  getAll (getDual (foldMapRepeatedSource (\x -> g (\_ -> Dual (All False)) x) xs))
 {-# INLINE nullRepeated #-}
 
 -- | May predict the number of elements in the sequence, but does
@@ -150,9 +154,20 @@ predictRepeated :: ToRepeated c e => c -> Maybe Int
 predictRepeated = predictRepeatedSource . toRepeated
 {-# INLINE predictRepeated #-}
 
+-- | Equivalent to a lazy 'foldMap' over the given sequence.
 foldMapRepeated :: (ToRepeated c e, Monoid m) => (e -> m) -> c -> m
 foldMapRepeated f = foldMapRepeatedSource f . toRepeated
 {-# INLINE foldMapRepeated #-}
+
+-- | Like 'foldMapRepeated', but strictly accumulates from the end of the sequence.
+foldMapRepeated' :: (ToRepeated c e, Monoid m) => (e -> m) -> c -> m
+foldMapRepeated' f = \xs ->
+  foldMapRepeated (\x -> Endo (oneShot (\acc -> acc `seq` f x <> acc))) xs `appEndo` mempty
+    -- Curiously, a newtype around the 'Monoid' that strictifies the right operand
+    -- is insufficient to cause GHC 9.8.2 to pass the accumulator to recursive calls
+    -- instead of applying '<>' after making the recursive call.  It is not clear why.
+    -- That is why we instead use 'Endo' here.
+{-# INLINE foldMapRepeated' #-}
 
 -- | Converts to 'Repeated' from a sequence supporting 'ToRepeated'.
 toRepeated :: ToRepeated c e => c -> Repeated e
@@ -199,8 +214,8 @@ mapMaybeRepeated f = mapFoldRepeated (\j a -> foldMap j (f a))
 -- For example, @mapMaybeRepeated f = mapFoldRepeated (\h -> foldMap h . f)@.
 mapFoldRepeated :: ToRepeated c a => (forall m . Monoid m => (e -> m) -> a -> m) -> c -> Repeated e
 mapFoldRepeated f = \xs -> case toRepeated xs of
-  MapRepeated g ys -> BindRepeated (\j y -> f j (g y)) ys
-  BindRepeated g ys -> BindRepeated (\j -> g (inline f (inline j))) ys
+  MapRepeated g ys -> BindRepeated (\j y -> inline (f (inline j) (inline (g y)))) ys
+  BindRepeated g ys -> BindRepeated (\j y -> inline (g (inline f (\e -> inline (j e))) y)) ys
 {-# INLINE mapFoldRepeated #-}
 
 -- | For each container type, specifies the optimal method for reverse iteration.
@@ -251,7 +266,7 @@ instance ToRepeated (Repeated e) e
     {-# INLINE predictRepeatedSource #-}
 
     foldMapRepeatedSource f (MapRepeated g ys) = foldMapRepeatedSource (\y -> f (g y)) ys
-    foldMapRepeatedSource f (BindRepeated g ys) = foldMapRepeatedSource (g f) ys
+    foldMapRepeatedSource f (BindRepeated g ys) = foldMapRepeatedSource (\y -> g f y) ys
     {-# INLINE foldMapRepeatedSource #-}
 
 -- | As viewed through 'ToRepeated', reverses the order of a sequence.  But
@@ -320,7 +335,7 @@ instance ToRepeated (Reverse [e]) e
     predictRepeatedSource = \_ -> Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (\x -> Dual (f x)) xs)
     {-# INLINE foldMapRepeatedSource #-}
 
 instance ToRepeated (NonEmpty e) e
@@ -338,7 +353,7 @@ instance ToRepeated (Reverse (NonEmpty e)) e
     predictRepeatedSource = \_ -> Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (\x -> Dual (f x)) xs)
     {-# INLINE foldMapRepeatedSource #-}
 
 instance ToRepeated (Identity a) a
@@ -372,7 +387,7 @@ instance ToRepeated (Reverse (Data.Vector.Vector a)) a
     predictRepeatedSource = \(Reverse xs) -> Just (Data.Vector.length xs)
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (Data.Vector.foldMap (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) -> getDual (Data.Vector.foldMap (\x -> Dual (f x)) xs)
     {-# INLINE foldMapRepeatedSource #-}
 
 instance Storable a =>
@@ -381,8 +396,8 @@ instance Storable a =>
     predictRepeatedSource = Just . Data.Vector.Storable.length
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource =
-      \f xs -> getDual (Data.Vector.Storable.foldMap (Dual . f) (Data.Vector.Storable.reverse xs))
+    foldMapRepeatedSource = \f xs ->
+      getDual (Data.Vector.Storable.foldMap (\x -> Dual (f x)) (Data.Vector.Storable.reverse xs))
       -- Vector fusion should convert this to reverse iteration.
     {-# INLINE foldMapRepeatedSource #-}
 
@@ -392,7 +407,8 @@ instance Storable a =>
     predictRepeatedSource = \(Reverse xs) -> Just (Data.Vector.Storable.length xs)
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (Data.Vector.Storable.foldMap (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) ->
+      getDual (Data.Vector.Storable.foldMap (\x -> Dual (f x)) xs)
     {-# INLINE foldMapRepeatedSource #-}
 
 instance Data.Vector.Unboxed.Unbox a =>
@@ -401,8 +417,8 @@ instance Data.Vector.Unboxed.Unbox a =>
     predictRepeatedSource = Just . Data.Vector.Unboxed.length
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource =
-      \f xs -> getDual (Data.Vector.Unboxed.foldMap (Dual . f) (Data.Vector.Unboxed.reverse xs))
+    foldMapRepeatedSource = \f xs ->
+      getDual (Data.Vector.Unboxed.foldMap (\x -> Dual (f x)) (Data.Vector.Unboxed.reverse xs))
       -- Vector fusion should convert this to reverse iteration.
     {-# INLINE foldMapRepeatedSource #-}
 
@@ -412,7 +428,8 @@ instance Data.Vector.Unboxed.Unbox a =>
     predictRepeatedSource = \(Reverse xs) -> Just (Data.Vector.Unboxed.length xs)
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (Data.Vector.Unboxed.foldMap (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) ->
+      getDual (Data.Vector.Unboxed.foldMap (\x -> Dual (f x)) xs)
     {-# INLINE foldMapRepeatedSource #-}
 
 instance ToRepeated (Data.Sequence.Seq a) a
@@ -430,7 +447,7 @@ instance ToRepeated (Reverse (Data.Sequence.Seq a)) a
     predictRepeatedSource = \(Reverse xs) -> Just (Data.Sequence.length xs)
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (\x -> Dual (f x)) xs)
       -- Should present the first element without having to read through the whole sequence,
       -- though we may have to descend to the bottom of the tree.
     {-# INLINE foldMapRepeatedSource #-}
@@ -450,7 +467,7 @@ instance ToRepeated (Reverse (Data.Set.Set a)) a
     predictRepeatedSource = \(Reverse xs) -> Just (Data.Set.size xs)
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (Dual . f) xs)
+    foldMapRepeatedSource = \f (Reverse xs) -> getDual (foldMap (\x -> Dual (f x)) xs)
       -- Should present the first element without having to read through the whole sequence,
       -- though we may have to descend to the bottom of the tree.
     {-# INLINE foldMapRepeatedSource #-}
@@ -477,7 +494,7 @@ instance ToRepeated (Reverse Data.IntSet.IntSet) Data.IntSet.Key
 
     foldMapRepeatedSource =
 #if MIN_VERSION_containers(0,8,0)
-      \f (Reverse xs) -> getDual (Data.IntSet.foldMap (Dual . f) xs
+      \f (Reverse xs) -> getDual (Data.IntSet.foldMap (\x -> Dual (f x)) xs
 #else
       \f (Reverse xs) -> Data.IntSet.foldr (\x a -> a <> f x) mempty xs
 #endif
@@ -490,7 +507,7 @@ instance ToRepeated (Data.Map.Lazy.Map k a) (k, a)
     predictRepeatedSource = Just . Data.Map.Lazy.size
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f -> Data.Map.Lazy.foldMapWithKey (curry f)
+    foldMapRepeatedSource = \f -> Data.Map.Lazy.foldMapWithKey (\k v -> f (k, v))
       -- Should present the last key-value pair without having to read through the whole map,
       -- though we may have to descend to the bottom of the tree.
     {-# INLINE foldMapRepeatedSource #-}
@@ -500,8 +517,8 @@ instance ToRepeated (Reverse (Data.Map.Lazy.Map k a)) (k, a)
     predictRepeatedSource = \(Reverse xs) -> Just (Data.Map.Lazy.size xs)
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource =
-      \f (Reverse xs) -> getDual (Data.Map.Lazy.foldMapWithKey (curry (Dual . f)) xs)
+    foldMapRepeatedSource = \f (Reverse xs) ->
+      getDual (Data.Map.Lazy.foldMapWithKey (\k v -> Dual (f (k, v))) xs)
       -- Should present the first key-value pair without having to read through the whole map,
       -- though we may have to descend to the bottom of the tree.
     {-# INLINE foldMapRepeatedSource #-}
@@ -511,7 +528,7 @@ instance ToRepeated (Data.IntMap.Lazy.IntMap a) (Data.IntMap.Lazy.Key, a)
     predictRepeatedSource = \_ -> Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource = \f -> Data.IntMap.Lazy.foldMapWithKey (curry f)
+    foldMapRepeatedSource = \f -> Data.IntMap.Lazy.foldMapWithKey (\k v -> f (k, v))
       -- Should present the last key-value pair without having to read through the whole map,
       -- though we may have to descend to the bottom of the tree.
     {-# INLINE foldMapRepeatedSource #-}
@@ -521,8 +538,8 @@ instance ToRepeated (Reverse (Data.IntMap.Lazy.IntMap a)) (Data.IntMap.Lazy.Key,
     predictRepeatedSource = \_ -> Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource =
-      \f (Reverse xs) -> getDual (Data.IntMap.Lazy.foldMapWithKey (curry (Dual . f)) xs)
+    foldMapRepeatedSource = \f (Reverse xs) ->
+      getDual (Data.IntMap.Lazy.foldMapWithKey (\k v -> Dual (f (k, v))) xs)
       -- Should present the last key-value pair without having to read through the whole map,
       -- though we may have to descend to the bottom of the tree.
     {-# INLINE foldMapRepeatedSource #-}
