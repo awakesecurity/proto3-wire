@@ -182,6 +182,17 @@ mapMaybeRepeated f = mapFoldRepeated (\j a -> foldMap j (f a))
 -- 'Repeated' as a 'Monoid' under concatenation, in practice
 -- we have not yet implemented such an operation.)
 --
+-- NOTE: As with 'foldMapRepeatedSource', it is preferred that
+-- the fold transformation that you pass to this function allow
+-- the fold that is eventually passed in to demand the elements
+-- that it expects in /reverse/ order without harming efficiency
+-- (because that fold typically creates a reverse builder).
+--
+-- For example, the given fold transformer might create a subsequence
+-- of new elements from a single element of the original sequence,
+-- then use 'foldMapRepeated' on that subsequence in order to present
+-- the new elements in reverse order to the extent that is practical.
+--
 -- Necessarily invalidates any predicted number of elements.
 --
 -- For example, @mapMaybeRepeated f = mapFoldRepeated (\h -> foldMap h . f)@.
