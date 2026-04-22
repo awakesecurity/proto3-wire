@@ -70,8 +70,8 @@ import qualified Proto3.Wire.Decode    as Decode
 import qualified Proto3.Wire.Encode    as Encode
 import           Proto3.Wire.Encode.Repeated
                                        ( Count(..), Repeated(..), Reverse(..), ToRepeated(..),
-                                         foldMapRepeated, mapRepeated, mapMaybeRepeated,
-                                         nullRepeated, predictRepeated, toRepeated )
+                                         foldMapRepeated, mapFoldRepeated, mapMaybeRepeated,
+                                         mapRepeated, nullRepeated, predictRepeated, toRepeated )
 import qualified Proto3.Wire.Reverse   as Reverse
 import           Proto3.Wire.Types     ( WireType(..) )
 
@@ -899,15 +899,17 @@ toRepeatedTests :: TestTree
 toRepeatedTests = testGroup "ToRepeated"
   [ test_genRepeated
   , test_Eq_Repeated
-  , test_IsList_Repeated
   , test_Show_Repeated
   , test_Read_Repeated
+  , test_IsList_Repeated
   , test_Functor_Repeated
   , test_nullRepeated
+  , test_predictRepeated
+  , test_foldMapRepeated
   , test_toRepeated
   , test_mapRepeated
   , test_mapMaybeRepeated
-  , test_foldMapRepeated
+  , test_mapFoldRepeated
   , test_ToRepeated_Repeated
   , test_ToRepeated CorrectCP QC.arbitrary (toList @Identity @Word8)
   , test_ToRepeated NoCP QC.arbitrary (id @[Word8])
@@ -921,8 +923,6 @@ toRepeatedTests = testGroup "ToRepeated"
   , test_ToRepeated CorrectCP QC.arbitrary (Data.Map.Lazy.toAscList @Int8 @Word8)
   , test_ToRepeated NoCP QC.arbitrary (Data.IntMap.Lazy.toAscList @Word8)
   , test_RULES_toRepeated_Repeated
-  , test_RULES_mapRepeated_Repeated
-  , test_RULES_mapMaybeRepeated_Repeated
   ]
 
 data TestSequenceNE e = LeafSequenceNE e | NodeSequenceNE (TestSequenceNE e) (TestSequenceNE e)
@@ -960,7 +960,7 @@ toNonEmptyTestSequenceNE = \case
 
 -- NOTE: Does not preserve order, nor does it need to preserve
 -- order because we use it only during random generation.
-splitAndReorderTestSequenceNE :: NE.NonEmpty Word8 -> QC.Gen (TestSequenceNE Word8)
+splitAndReorderTestSequenceNE :: NE.NonEmpty e -> QC.Gen (TestSequenceNE e)
 splitAndReorderTestSequenceNE (x NE.:| []) = pure (LeafSequenceNE x)
 splitAndReorderTestSequenceNE (y NE.:| z : xs) = do
   index <- QC.choose (0, length xs)
@@ -972,11 +972,11 @@ splitAndReorderTestSequenceNE (y NE.:| z : xs) = do
 toListTestSequence :: Maybe (TestSequenceNE e) -> [e]
 toListTestSequence = maybe [] (NE.toList . toNonEmptyTestSequenceNE)
 
-splitAndReorderTestSequence :: [Word8] -> QC.Gen (Maybe (TestSequenceNE Word8))
+splitAndReorderTestSequence :: [e] -> QC.Gen (Maybe (TestSequenceNE e))
 splitAndReorderTestSequence [] = pure Nothing
 splitAndReorderTestSequence (x : xs) = Just <$> splitAndReorderTestSequenceNE (x NE.:| xs)
 
-genTestSequence :: QC.Gen (TestSequence Word8)
+genTestSequence :: QC.Arbitrary e => QC.Gen (TestSequence e)
 genTestSequence = do
   xs <- QC.arbitrary
   ys <- splitAndReorderTestSequence xs
@@ -988,15 +988,17 @@ genTestSequence = do
 -- Also reports any count prediction that we expect to be made by the generated 'Repeated'.
 genRepeated :: QC.Gen (Maybe Int, [Word8], Repeated Word8)
 genRepeated = do
-  xs <- genTestSequence
+  (xs :: TestSequence Int8) <- genTestSequence
   let TestSequence maybeCount (toListTestSequence -> ys) = xs
   oddFactor <- (1 Bits..|.) <$> QC.arbitrary
   f <- QC.frequency
-    [ (2, pure (Right (oddFactor *)))
-    , (1, pure (Left (\x -> if mod x 3 == 0 then Nothing else Just (oddFactor * x))))
-    , (1, pure (Left (\x -> if mod x 3 == 1 then Nothing else Just (oddFactor * x))))
+    [ (2, pure (Left ((oddFactor *) . fromIntegral)))
+    , (1, pure (Right (\(fromIntegral -> x) -> if mod x 3 == 0 then [] else [oddFactor * x])))
+    , (1, pure (Right (\(fromIntegral -> x) -> if mod x 3 == 1 then [] else [oddFactor * x, x])))
     ]
-  pure (either (const Nothing) (const maybeCount) f, either mapMaybe map f ys, MkRepeated f xs)
+  pure $ case f of
+    Left g -> (maybeCount, map g ys, MapRepeated g xs)
+    Right g -> (Nothing, concatMap g ys, BindRepeated (\j -> foldMap j . g) xs)
 
 -- | Performs basic validation of a value of type 'Repeated' against
 -- the information it is expected to contain.  While these checks
@@ -1005,16 +1007,16 @@ genRepeated = do
 -- and the extra time required for these particular checks is tiny.
 validateRepeated :: (Eq e, Show e) => Maybe Int -> [e] -> Repeated e -> QC.Property
 validateRepeated expectedMaybeCount expectedElements = \case
-  MkRepeated (Left f) ys ->
-    foldMapRepeatedSource (foldMap (: []) . f) ys === expectedElements
-    QC..&&.
-    Nothing === expectedMaybeCount
-  MkRepeated (Right f) ys ->
-    foldMapRepeatedSource ((: []) . f) ys === expectedElements
+  MapRepeated g ys ->
+    foldMapRepeatedSource ((: []) . g) ys === expectedElements
     QC..&&.
     case predictRepeatedSource ys of
       Nothing -> Nothing === expectedMaybeCount
       Just n -> n === length expectedElements QC..&&. Just n === expectedMaybeCount
+  BindRepeated g ys ->
+    foldMapRepeatedSource (g (: [])) ys === expectedElements
+    QC..&&.
+    Nothing === expectedMaybeCount
 
 -- NOTE: This test verifies the test infrastructure against itself.
 -- It is not intended to check the code under test.
@@ -1030,6 +1032,21 @@ test_Eq_Repeated =
     QC.forAll genRepeated $ \(_, xs, xr) ->
     QC.forAll genRepeated $ \(_, ys, yr) ->
       (xr == yr) === (xs == ys)
+
+test_Show_Repeated :: TestTree
+test_Show_Repeated =
+  QC.testProperty "Show (Repeated Word8)" $
+    QC.forAll genRepeated $ \(_, xs, xr) ->
+    QC.forAll (QC.choose (0, 12)) $ \d ->
+      showsPrec d xr "xyz" === showsPrec d xs "xyz"
+
+test_Read_Repeated :: TestTree
+test_Read_Repeated =
+  QC.testProperty "Read (Repeated Word8)" $
+    QC.forAll genRepeated $ \(_, xs, xr) ->
+      readEither (show xs) === Right xr  -- can consume expected form
+      QC..&&.
+      readEither (show xr) === Right xr  -- round trip with 'show'
 
 test_IsList_Repeated :: TestTree
 test_IsList_Repeated =
@@ -1059,21 +1076,6 @@ test_IsList_Repeated =
             predictRepeated xr' === Just n
         )
 
-test_Show_Repeated :: TestTree
-test_Show_Repeated =
-  QC.testProperty "Show (Repeated Word8)" $
-    QC.forAll genRepeated $ \(_, xs, xr) ->
-    QC.forAll (QC.choose (0, 12)) $ \d ->
-      showsPrec d xr "xyz" === showsPrec d xs "xyz"
-
-test_Read_Repeated :: TestTree
-test_Read_Repeated =
-  QC.testProperty "Read (Repeated Word8)" $
-    QC.forAll genRepeated $ \(_, xs, xr) ->
-      readEither (show xs) === Right xr  -- can consume expected form
-      QC..&&.
-      readEither (show xr) === Right xr  -- round trip with 'show'
-
 test_Functor_Repeated :: TestTree
 test_Functor_Repeated =
   QC.testProperty "Functor Repeated" $
@@ -1088,6 +1090,32 @@ test_nullRepeated =
   QC.testProperty "nullRepeated" $
     QC.forAll genRepeated $ \(_, xs, xr) ->
       nullRepeated xr === null xs
+
+test_predictRepeated :: TestTree
+test_predictRepeated =
+  QC.testProperty "predictRepeated" $
+    QC.forAll genRepeated $ \(xc, xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+    QC.forAll QC.arbitrary $ \probablyIncorrectCount ->
+      let f y = pivot - y
+          g y
+            | even y = Nothing
+            | otherwise = Just (pivot - y)
+      in
+        predictRepeated (mapRepeated f xr) === xc
+        QC..&&.
+        predictRepeated (mapMaybeRepeated g xr) === Nothing
+        QC..&&.
+        predictRepeated (UnsafeCount probablyIncorrectCount xs) === Just probablyIncorrectCount
+
+test_foldMapRepeated :: TestTree
+test_foldMapRepeated =
+  QC.testProperty "foldMapRepeated" $
+    QC.forAll genRepeated $ \(_, xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f y = [pivot - y]
+      in
+        GHC.Exts.toList (foldMapRepeated f xr) === foldMap f xs
 
 test_toRepeated :: TestTree
 test_toRepeated =
@@ -1119,31 +1147,20 @@ test_mapMaybeRepeated =
         QC..&&.
         predictRepeated (mapMaybeRepeated f xr) === Nothing
 
-test_foldMapRepeated :: TestTree
-test_foldMapRepeated =
-  QC.testProperty "foldMapRepeated" $
+test_mapFoldRepeated :: TestTree
+test_mapFoldRepeated =
+  QC.testProperty "mapFoldRepeated" $
     QC.forAll genRepeated $ \(_, xs, xr) ->
     QC.forAll QC.arbitrary $ \pivot ->
-      let f y = [pivot - y]
+      let f y = case mod y 3 of
+            0 -> [pivot - y]
+            1 -> [pivot - y, y]
+            _ -> []
+          g j y = foldMap j (f y)
       in
-        GHC.Exts.toList (foldMapRepeated f xr) === foldMap f xs
-
-test_predictRepeated :: TestTree
-test_predictRepeated =
-  QC.testProperty "predictRepeated" $
-    QC.forAll genRepeated $ \(xc, xs, xr) ->
-    QC.forAll QC.arbitrary $ \pivot ->
-    QC.forAll QC.arbitrary $ \probablyIncorrectCount ->
-      let f y = pivot - y
-          g y
-            | even y = Nothing
-            | otherwise = Just (pivot - y)
-      in
-        predictRepeated (mapRepeated f xr) === xc
+        GHC.Exts.toList (mapFoldRepeated g xr) === concatMap f xs
         QC..&&.
-        predictRepeated (mapMaybeRepeated g xr) === Nothing
-        QC..&&.
-        predictRepeated (UnsafeCount probablyIncorrectCount xs) === Just probablyIncorrectCount
+        predictRepeated (mapFoldRepeated g xr) === Nothing
 
 test_ToRepeated_Repeated :: TestTree
 test_ToRepeated_Repeated =
@@ -1209,37 +1226,7 @@ test_RULES_toRepeated_Repeated =
     QC.forAll genRepeated $ \(_, _, xr :: Repeated Word8) ->
       toRepeated xr === toRepeated_NOINLINE xr
 
-test_RULES_mapRepeated_Repeated :: TestTree
-test_RULES_mapRepeated_Repeated =
-  QC.testProperty "RULES mapRepeated@Repeated" $
-    QC.forAll genRepeated $ \(_, _, xr :: Repeated Word8) ->
-    QC.forAll QC.arbitrary $ \pivot ->
-      let f y = pivot - y
-      in
-        mapRepeated f xr === mapRepeated_NOINLINE f xr
-
-test_RULES_mapMaybeRepeated_Repeated :: TestTree
-test_RULES_mapMaybeRepeated_Repeated =
-  QC.testProperty "RULES mapMaybeRepeated@Repeated" $
-    QC.forAll genRepeated $ \(_, _, xr :: Repeated Word8) ->
-    QC.forAll QC.arbitrary $ \pivot ->
-      let g y
-            | even y = Nothing
-            | otherwise = Just (pivot - y)
-      in
-        mapMaybeRepeated g xr === mapMaybeRepeated_NOINLINE g xr
-
 -- | @NOINLINE@ and still polymorphic in order to avoid triggering rewrite rules.
 toRepeated_NOINLINE :: ToRepeated c e => c -> Repeated e
 toRepeated_NOINLINE = toRepeated
 {-# NOINLINE toRepeated_NOINLINE #-}
-
--- | @NOINLINE@ and still polymorphic in order to avoid triggering rewrite rules.
-mapRepeated_NOINLINE :: ToRepeated c a => (a -> e) -> c -> Repeated e
-mapRepeated_NOINLINE = mapRepeated
-{-# NOINLINE mapRepeated_NOINLINE #-}
-
--- | @NOINLINE@ and still polymorphic in order to avoid triggering rewrite rules.
-mapMaybeRepeated_NOINLINE :: ToRepeated c a => (a -> Maybe e) -> c -> Repeated e
-mapMaybeRepeated_NOINLINE = mapMaybeRepeated
-{-# NOINLINE mapMaybeRepeated_NOINLINE #-}

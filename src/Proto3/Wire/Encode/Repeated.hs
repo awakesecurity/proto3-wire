@@ -33,18 +33,17 @@
 module Proto3.Wire.Encode.Repeated
   ( Repeated(..)
   , nullRepeated
+  , predictRepeated
+  , foldMapRepeated
   , toRepeated
   , mapRepeated
   , mapMaybeRepeated
-  , foldMapRepeated
-  , predictRepeated
+  , mapFoldRepeated
   , Reverse(..)
   , Count(Count, ..)
   , ToRepeated(..)
   ) where
 
-import Control.Monad ((<=<))
-import Data.Bifunctor (bimap)
 import Data.Coerce (coerce)
 import Data.Functor.Identity (Identity(..))
 import Data.IntMap.Lazy qualified
@@ -69,39 +68,47 @@ import Text.Read (Read(..))
 -- optimized for left associativity.
 data Repeated e
   where
-    MkRepeated ::
+    MapRepeated ::
       forall c a e .
       ToRepeated c a =>
-      -- | Maps and optionally filters the elements of the sequence.
+      -- | Maps the elements of the sequence individually.
+      -- /without/ modifing the number or order of elements.
       --
-      -- Note that mapping preserves the utility of 'predictRepeatedSource',
-      -- whereas filtering invalidates such predictions.  Therefore
-      -- it is best to avoid 'Left' values that always return 'Just';
-      -- instead strip off the unconditional 'Just' and use 'Right'.
-      Either (a -> Maybe e) (a -> e) ->
+      -- In this case 'predictRepeatedSource' remains useful.
+      (a -> e) ->
+      -- | The container providing the sequence.
+      c ->
+      Repeated e
+
+    BindRepeated ::
+      forall c a e .
+      ToRepeated c a =>
+      -- | Maps each element of the sequence to zero or more new
+      -- elements and concatenates the results by transforming
+      -- the fold to be passed to 'foldMapRepeatedSource'.
+      --
+      -- We cannot make use of 'predictRepeatedSource' in this case.
+      (forall m . Monoid m => (e -> m) -> (a -> m)) ->
       -- | The container providing the sequence.
       c ->
       Repeated e
 
 instance Functor Repeated
   where
-    fmap f (MkRepeated (Left g) xs) = MkRepeated (Left (fmap f . g)) xs
-    fmap f (MkRepeated (Right g) xs) = MkRepeated (Right (f . g)) xs
+    fmap f (MapRepeated g xs) = MapRepeated (\x -> f (g x)) xs
+    fmap f (BindRepeated g xs) = BindRepeated (\j -> g (\y -> j (f y))) xs
     {-# INLINE fmap #-}
 
 instance GHC.Exts.IsList (Repeated e)
   where
     type Item (Repeated e) = e
 
-    fromList xs = MkRepeated (Right id) xs
-    {-# INLINE fromList #-}
+    fromList xs = MapRepeated id xs
 
-    fromListN n xs = MkRepeated (Right id) (UnsafeCount n xs)
-    {-# INLINE fromListN #-}
+    fromListN n xs = MapRepeated id (UnsafeCount n xs)
 
-    toList (MkRepeated (Left f) xs) = appEndo (foldMapRepeatedSource (Endo . maybe id (:) . f) xs) []
-    toList (MkRepeated (Right f) xs) = appEndo (foldMapRepeatedSource (Endo . (:) . f) xs) []
-    {-# INLINE toList #-}
+    toList (MapRepeated g xs) = appEndo (foldMapRepeatedSource (\x -> Endo (g x :)) xs) []
+    toList (BindRepeated g xs) = appEndo (foldMapRepeatedSource (g (\y -> Endo (y :))) xs) []
 
 instance Eq e =>
          Eq (Repeated e)
@@ -120,57 +127,13 @@ instance Show e =>
 
 -- | Is the given sequence empty?
 nullRepeated :: Repeated e -> Bool
-nullRepeated (MkRepeated (Left f) xs) =
-  getAll (getDual (foldMapRepeatedSource (foldMap (\_ -> Dual (All False)) . f) xs))
-nullRepeated (MkRepeated (Right _) xs) =
+nullRepeated (MapRepeated _ xs) =
   case predictRepeatedSource xs of
     Just c -> c <= 0
     Nothing -> getAll (getDual (foldMapRepeatedSource (\_ -> Dual (All False)) xs))
+nullRepeated (BindRepeated g xs) =
+  getAll (getDual (foldMapRepeatedSource (g (\_ -> Dual (All False))) xs))
 {-# INLINE nullRepeated #-}
-
--- | Converts to 'Repeated' from a sequence supporting 'ToRepeated'.
-toRepeated :: ToRepeated c e => c -> Repeated e
-toRepeated = mapRepeated id
-{-# INLINE [1] toRepeated #-}
-{-# RULES
-    "toRepeated@Repeated"
-      forall xs . toRepeated xs = xs
-  #-}
-
--- | Maps a function over the elements of a 'Repeated' sequence.
-mapRepeated :: ToRepeated c a => (a -> e) -> c -> Repeated e
-mapRepeated f xs = MkRepeated (Right f) xs
-{-# INLINE [1] mapRepeated #-}
-{-# RULES
-    "mapRepeated@Repeated"
-      forall f xs . mapRepeated f xs = mapRepeatedRepeated f xs
-  #-}
-
-mapRepeatedRepeated :: (a -> e) -> Repeated a -> Repeated e
-mapRepeatedRepeated f (MkRepeated g xs) = MkRepeated (bimap (fmap f .) (f .) g) xs
-{-# INLINE mapRepeatedRepeated #-}
-
--- | Maps and filters a 'Repeated' sequence.
-mapMaybeRepeated :: ToRepeated c a => (a -> Maybe e) -> c -> Repeated e
-mapMaybeRepeated f xs = MkRepeated (Left f) xs
-{-# INLINE [1] mapMaybeRepeated #-}
-{-# RULES
-    "mapMaybeRepeated@Repeated"
-      forall f xs . mapMaybeRepeated f xs = mapMaybeRepeatedRepeated f xs
-  #-}
-
-mapMaybeRepeatedRepeated :: (a -> Maybe e) -> Repeated a -> Repeated e
-mapMaybeRepeatedRepeated f (MkRepeated g xs) = MkRepeated (Left (either (f <=<) (f .) g)) xs
-{-# INLINE mapMaybeRepeatedRepeated #-}
-
-foldMapRepeated :: (ToRepeated c e, Monoid m) => (e -> m) -> c -> m
-foldMapRepeated f xs = foldMapRepeatedRepeated f (toRepeated xs)
-{-# INLINE foldMapRepeated #-}
-
-foldMapRepeatedRepeated :: Monoid m => (e -> m) -> Repeated e -> m
-foldMapRepeatedRepeated g (MkRepeated (Left f) xs) = foldMapRepeatedSource (foldMap g . f) xs
-foldMapRepeatedRepeated g (MkRepeated (Right f) xs) = foldMapRepeatedSource (g . f) xs
-{-# INLINE [1] foldMapRepeatedRepeated #-}
 
 -- | May predict the number of elements in the sequence, but does
 -- so only when it is practical to do so accurately and quickly.
@@ -183,10 +146,50 @@ foldMapRepeatedRepeated g (MkRepeated (Right f) xs) = foldMapRepeatedSource (g .
 -- For example, it is easy to predict the length of a vector, but
 -- we would have to prescan a lazy list to discover its length.
 predictRepeated :: ToRepeated c e => c -> Maybe Int
-predictRepeated xs = case toRepeated xs of
-  MkRepeated (Left _) _ -> Nothing
-  MkRepeated (Right _) ys -> predictRepeatedSource ys
+predictRepeated = predictRepeatedSource . toRepeated
 {-# INLINE predictRepeated #-}
+
+foldMapRepeated :: (ToRepeated c e, Monoid m) => (e -> m) -> c -> m
+foldMapRepeated f = foldMapRepeatedSource f . toRepeated
+{-# INLINE foldMapRepeated #-}
+
+-- | Converts to 'Repeated' from a sequence supporting 'ToRepeated'.
+toRepeated :: ToRepeated c e => c -> Repeated e
+toRepeated = MapRepeated id
+{-# INLINE [1] toRepeated #-}
+{-# RULES "toRepeated@Repeated" toRepeated = id #-}
+
+-- | Maps a function over the elements of a 'Repeated' sequence.
+mapRepeated :: ToRepeated c a => (a -> e) -> c -> Repeated e
+mapRepeated f = fmap f . toRepeated
+{-# INLINE mapRepeated #-}
+
+-- | Maps and filters a 'Repeated' sequence, with
+-- the same semantics as `Data.Maybe.mapMaybe`.
+--
+-- Necessarily invalidates any predicted number of elements.
+mapMaybeRepeated :: ToRepeated c a => (a -> Maybe e) -> c -> Repeated e
+mapMaybeRepeated f = mapFoldRepeated (\j a -> foldMap j (f a))
+{-# INLINE mapMaybeRepeated #-}
+
+-- | Maps each element of the sequence to zero or more new
+-- elements and concatenates the results by transforming
+-- the fold to be passed to 'foldMapRepeatedSource'.
+--
+-- The semantics are similar to 'foldMap' and 'foldMapRepeated',
+-- but in this case the result is another 'Repeated' rather than
+-- a final monoidal result.  (Though conceptually one can view
+-- 'Repeated' as a 'Monoid' under concatenation, in practice
+-- we have not yet implemented such an operation.)
+--
+-- Necessarily invalidates any predicted number of elements.
+--
+-- For example, @mapMaybeRepeated f = mapFoldRepeated (\h -> foldMap h . f)@.
+mapFoldRepeated :: ToRepeated c a => (forall m . Monoid m => (e -> m) -> (a -> m)) -> c -> Repeated e
+mapFoldRepeated f = \xs -> case toRepeated xs of
+  MapRepeated g ys -> BindRepeated (\j y -> f j (g y)) ys
+  BindRepeated g ys -> BindRepeated (\j -> g (f j)) ys
+{-# INLINE mapFoldRepeated #-}
 
 -- | For each container type, specifies the optimal method for reverse iteration.
 --
@@ -231,12 +234,12 @@ class ToRepeated c e | c -> e
 
 instance ToRepeated (Repeated e) e
   where
-    predictRepeatedSource (MkRepeated (Left _) _) = Nothing
-    predictRepeatedSource (MkRepeated (Right _) xs) = predictRepeatedSource xs
+    predictRepeatedSource (MapRepeated _ ys) = predictRepeatedSource ys
+    predictRepeatedSource (BindRepeated _ _) = Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource f (MkRepeated (Left g) xs) = foldMapRepeatedSource (foldMap f . g) xs
-    foldMapRepeatedSource f (MkRepeated (Right g) xs) = foldMapRepeatedSource (f . g) xs
+    foldMapRepeatedSource f (MapRepeated g ys) = foldMapRepeatedSource (\y -> f (g y)) ys
+    foldMapRepeatedSource f (BindRepeated g ys) = foldMapRepeatedSource (g f) ys
     {-# INLINE foldMapRepeatedSource #-}
 
 -- | As viewed through 'ToRepeated', reverses the order of a sequence.  But
