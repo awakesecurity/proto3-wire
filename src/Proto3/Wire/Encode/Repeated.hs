@@ -58,6 +58,7 @@ import Data.Vector qualified
 import Data.Vector.Storable qualified
 import Data.Vector.Unboxed qualified
 import Foreign (Storable)
+import GHC.Exts (oneShot)
 import GHC.Exts qualified (IsList(..))
 import Text.Read (Read(..))
 
@@ -95,8 +96,8 @@ data Repeated e
 
 instance Functor Repeated
   where
-    fmap f (MapRepeated g xs) = MapRepeated (\x -> f (g x)) xs
-    fmap f (BindRepeated g xs) = BindRepeated (\j -> g (\y -> j (f y))) xs
+    fmap f (MapRepeated g xs) = MapRepeated (oneShot (\x -> f (g x))) xs
+    fmap f (BindRepeated g xs) = BindRepeated (oneShot (\j -> oneShot (g (\y -> j (f y))))) xs
     {-# INLINE fmap #-}
 
 instance GHC.Exts.IsList (Repeated e)
@@ -107,8 +108,10 @@ instance GHC.Exts.IsList (Repeated e)
 
     fromListN n xs = MapRepeated id (UnsafeCount n xs)
 
-    toList (MapRepeated g xs) = appEndo (foldMapRepeatedSource (\x -> Endo (g x :)) xs) []
-    toList (BindRepeated g xs) = appEndo (foldMapRepeatedSource (g (\y -> Endo (y :))) xs) []
+    toList (MapRepeated g xs) =
+      appEndo (foldMapRepeatedSource (\x -> Endo (g x :)) xs) []
+    toList (BindRepeated g xs) =
+      appEndo (foldMapRepeatedSource (oneShot (g (oneShot (\y -> Endo (y :))))) xs) []
 
 instance Eq e =>
          Eq (Repeated e)
@@ -132,7 +135,7 @@ nullRepeated (MapRepeated _ xs) =
     Just c -> c <= 0
     Nothing -> getAll (getDual (foldMapRepeatedSource (\_ -> Dual (All False)) xs))
 nullRepeated (BindRepeated g xs) =
-  getAll (getDual (foldMapRepeatedSource (g (\_ -> Dual (All False))) xs))
+  getAll (getDual (foldMapRepeatedSource (oneShot (g (oneShot (\_ -> Dual (All False))))) xs))
 {-# INLINE nullRepeated #-}
 
 -- | May predict the number of elements in the sequence, but does
@@ -169,7 +172,7 @@ mapRepeated f = fmap f . toRepeated
 --
 -- Necessarily invalidates any predicted number of elements.
 mapMaybeRepeated :: ToRepeated c a => (a -> Maybe e) -> c -> Repeated e
-mapMaybeRepeated f = mapFoldRepeated (\j a -> foldMap j (f a))
+mapMaybeRepeated f = mapFoldRepeated (oneShot (\j -> (oneShot (\a -> foldMap j (f a)))))
 {-# INLINE mapMaybeRepeated #-}
 
 -- | Maps each element of the sequence to zero or more new
@@ -198,8 +201,8 @@ mapMaybeRepeated f = mapFoldRepeated (\j a -> foldMap j (f a))
 -- For example, @mapMaybeRepeated f = mapFoldRepeated (\h -> foldMap h . f)@.
 mapFoldRepeated :: ToRepeated c a => (forall m . Monoid m => (e -> m) -> (a -> m)) -> c -> Repeated e
 mapFoldRepeated f = \xs -> case toRepeated xs of
-  MapRepeated g ys -> BindRepeated (\j y -> f j (g y)) ys
-  BindRepeated g ys -> BindRepeated (\j -> g (f j)) ys
+  MapRepeated g ys -> BindRepeated (oneShot (\j -> oneShot (\y -> f j (g y)))) ys
+  BindRepeated g ys -> BindRepeated (oneShot (\j -> g (oneShot (f j)))) ys
 {-# INLINE mapFoldRepeated #-}
 
 -- | For each container type, specifies the optimal method for reverse iteration.
@@ -249,8 +252,8 @@ instance ToRepeated (Repeated e) e
     predictRepeatedSource (BindRepeated _ _) = Nothing
     {-# INLINE predictRepeatedSource #-}
 
-    foldMapRepeatedSource f (MapRepeated g ys) = foldMapRepeatedSource (\y -> f (g y)) ys
-    foldMapRepeatedSource f (BindRepeated g ys) = foldMapRepeatedSource (g f) ys
+    foldMapRepeatedSource f (MapRepeated g ys) = foldMapRepeatedSource (oneShot (\y -> f (g y))) ys
+    foldMapRepeatedSource f (BindRepeated g ys) = foldMapRepeatedSource (oneShot (g f)) ys
     {-# INLINE foldMapRepeatedSource #-}
 
 -- | As viewed through 'ToRepeated', reverses the order of a sequence.  But

@@ -1143,6 +1143,9 @@ test_mapMaybeRepeated =
         GHC.Exts.toList (mapMaybeRepeated f xr) === mapMaybe f xs
         QC..&&.
         predictRepeated (mapMaybeRepeated f xr) === Nothing
+        QC..&&.
+        -- Verify a related identity from the documentation for 'mapFoldRepeated':
+        mapMaybeRepeated f xr === mapFoldRepeated (\h -> foldMap h . f) xr
 
 test_mapFoldRepeated :: TestTree
 test_mapFoldRepeated =
