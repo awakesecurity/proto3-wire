@@ -36,6 +36,7 @@ module Proto3.Wire.Encode.Repeated
   , predictRepeated
   , foldMapRepeated
   , foldMapRepeated'
+  , foldrRepeated'
   , toRepeated
   , mapRepeated
   , mapMaybeRepeated
@@ -62,9 +63,6 @@ import Foreign (Storable)
 import GHC.Exts (inline, oneShot)
 import GHC.Exts qualified (IsList(..))
 import Text.Read (Read(..))
-
-import Data.Foldable (foldMap')
-import Data.Semigroup (Sum(..))
 
 -- | Expresses a sequence of values for encoding as a repeated field.
 --
@@ -160,14 +158,25 @@ foldMapRepeated f = foldMapRepeatedSource f . toRepeated
 {-# INLINE foldMapRepeated #-}
 
 -- | Like 'foldMapRepeated', but strictly accumulates from the end of the sequence.
+--
+-- Typically you should not use this fold with builders, but it can be
+-- used to gather statistics about a sequence, or for other purposes.
 foldMapRepeated' :: (ToRepeated c e, Monoid m) => (e -> m) -> c -> m
-foldMapRepeated' f = \xs ->
-  foldMapRepeated (\x -> Endo (oneShot (\acc -> acc `seq` f x <> acc))) xs `appEndo` mempty
+foldMapRepeated' f = foldrRepeated' (\x acc -> f x <> acc) mempty
     -- Curiously, a newtype around the 'Monoid' that strictifies the right operand
     -- is insufficient to cause GHC 9.8.2 to pass the accumulator to recursive calls
     -- instead of applying '<>' after making the recursive call.  It is not clear why.
-    -- That is why we instead use 'Endo' here.
+    -- That is why we instead use `foldrRepeated'` here.
 {-# INLINE foldMapRepeated' #-}
+
+-- | A right-associative fold that accumulates strictly from the end of the sequence.
+--
+-- Typically you should not use this fold with builders, but it can be
+-- used to gather statistics about a sequence, or for other purposes.
+foldrRepeated' :: ToRepeated c e => (e -> b -> b) -> b -> c -> b
+foldrRepeated' f = \z xs ->
+  foldMapRepeated (\x -> Endo (oneShot (\acc -> acc `seq` f x acc))) xs `appEndo` z
+{-# INLINE foldrRepeated' #-}
 
 -- | Converts to 'Repeated' from a sequence supporting 'ToRepeated'.
 toRepeated :: ToRepeated c e => c -> Repeated e
