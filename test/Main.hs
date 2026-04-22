@@ -41,7 +41,7 @@ import qualified Data.ByteString.Lazy  as BL
 import qualified Data.ByteString.Short as BS
 import qualified Data.ByteString.Builder.Internal as BBI
 import           Data.Either           ( isLeft )
-import           Data.Foldable         ( toList )
+import           Data.Foldable
 import           Data.Functor.Identity ( Identity )
 import           Data.Int
 import qualified Data.IntMap.Lazy
@@ -70,7 +70,8 @@ import qualified Proto3.Wire.Decode    as Decode
 import qualified Proto3.Wire.Encode    as Encode
 import           Proto3.Wire.Encode.Repeated
                                        ( Count(..), Repeated, Reverse(..), ToRepeated(..),
-                                         foldMapRepeated, mapFoldRepeated, mapMaybeRepeated,
+                                         foldMapRepeated, foldMapRepeated', foldlRepeated,
+                                         foldrRepeated', mapFoldRepeated, mapMaybeRepeated,
                                          mapRepeated, nullRepeated, predictRepeated, toRepeated )
 import qualified Proto3.Wire.Reverse   as Reverse
 import           Proto3.Wire.Types     ( WireType(..) )
@@ -906,6 +907,9 @@ toRepeatedTests = testGroup "ToRepeated"
   , test_nullRepeated
   , test_predictRepeated
   , test_foldMapRepeated
+  , test_foldMapRepeated'
+  , test_foldlRepeated
+  , test_foldrRepeated'
   , test_toRepeated
   , test_mapRepeated
   , test_mapMaybeRepeated
@@ -1113,6 +1117,35 @@ test_foldMapRepeated =
       let f y = [pivot - y]
       in
         GHC.Exts.toList (foldMapRepeated f xr) === foldMap f xs
+
+-- NOTE: Does not currently attempt to test strictness.
+test_foldMapRepeated' :: TestTree
+test_foldMapRepeated' =
+  QC.testProperty "foldMapRepeated'" $
+    QC.forAll genRepeated $ \(_, xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f y = [pivot - y]
+      in
+        GHC.Exts.toList (foldMapRepeated' f xr) === foldMap' f xs
+
+test_foldlRepeated :: TestTree
+test_foldlRepeated =
+  QC.testProperty "foldlRepeated" $
+    QC.forAll genRepeated $ \(_, xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f a y = pivot - y : a
+      in
+        GHC.Exts.toList (foldlRepeated f [] xr) === foldl f [] xs
+
+-- NOTE: Does not currently attempt to test strictness.
+test_foldrRepeated' :: TestTree
+test_foldrRepeated' =
+  QC.testProperty "foldrRepeated'" $
+    QC.forAll genRepeated $ \(_, xs, xr) ->
+    QC.forAll QC.arbitrary $ \pivot ->
+      let f y a = pivot - y : a
+      in
+        GHC.Exts.toList (foldrRepeated' f [] xr) === foldr' f [] xs
 
 test_toRepeated :: TestTree
 test_toRepeated =

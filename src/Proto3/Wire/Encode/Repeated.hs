@@ -36,6 +36,7 @@ module Proto3.Wire.Encode.Repeated
   , predictRepeated
   , foldMapRepeated
   , foldMapRepeated'
+  , foldlRepeated
   , foldrRepeated'
   , toRepeated
   , mapRepeated
@@ -169,13 +170,23 @@ foldMapRepeated' f = foldrRepeated' (\x acc -> f x <> acc) mempty
     -- That is why we instead use `foldrRepeated'` here.
 {-# INLINE foldMapRepeated' #-}
 
--- | A right-associative fold that accumulates strictly from the end of the sequence.
+-- | A left-associative lazy fold that accumulates from the beginning of the sequence.
+--
+-- Typically you should not use this fold with builders, but it can
+-- be used to gather information from the end of the sequence, such
+-- as the last element having a particular property.
+foldlRepeated :: ToRepeated c e => (b -> e -> b) -> b -> c -> b
+foldlRepeated f = \z xs ->
+  getDual (foldMapRepeated (\x -> Dual (Endo (\b -> f b x))) xs) `appEndo` z
+{-# INLINE foldlRepeated #-}
+
+-- | A right-associative strict fold that accumulates from the end of the sequence.
 --
 -- Typically you should not use this fold with builders, but it can be
 -- used to gather statistics about a sequence, or for other purposes.
 foldrRepeated' :: ToRepeated c e => (e -> b -> b) -> b -> c -> b
 foldrRepeated' f = \z xs ->
-  foldMapRepeated (\x -> Endo (oneShot (\acc -> acc `seq` f x acc))) xs `appEndo` z
+  foldMapRepeated (\x -> Endo (oneShot (\b -> b `seq` f x b))) xs `appEndo` z
 {-# INLINE foldrRepeated' #-}
 
 -- | Converts to 'Repeated' from a sequence supporting 'ToRepeated'.
