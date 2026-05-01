@@ -145,7 +145,6 @@ import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
 import           Parameterized.Data.Monoid     ( PMEmpty(..) )
 import           Proto3.Wire.Encode.Repeated   ( ToRepeated, mapRepeated )
 import qualified Proto3.Wire.Reverse           as RB
-import qualified Proto3.Wire.Reverse.Internal  as RBI
 import qualified Proto3.Wire.Reverse.Prim      as Prim
 import           Proto3.Wire.Class
 import           Proto3.Wire.Types

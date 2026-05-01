@@ -74,6 +74,7 @@ import           Proto3.Wire.Encode.Repeated
                                          foldrRepeated', mapFoldRepeated, mapMaybeRepeated,
                                          mapRepeated, nullRepeated, predictRepeated, toRepeated )
 import qualified Proto3.Wire.Reverse   as Reverse
+import qualified Proto3.Wire.Reverse.Internal as Reverse
 import           Proto3.Wire.Types     ( WireType(..) )
 
 import qualified Test.DocTest
@@ -96,7 +97,8 @@ main = do
     defaultMain tests
 
 tests :: TestTree
-tests = testGroup "Tests" [ roundTripTests
+tests = testGroup "Tests" [ buildMTests
+                          , roundTripTests
                           , buildSingleChunk
                           , buildRBufferSizes
                           , strictByteString
@@ -107,6 +109,66 @@ tests = testGroup "Tests" [ roundTripTests
                           , decodeWireRoundTrip
                           , toRepeatedTests
                           ]
+
+buildMTests :: TestTree
+buildMTests = testGroup "BuildM tests"
+  [ QC.testProperty "buildRToBuildM" $
+      QC.forAll QC.arbitrary $ \x ->
+        Reverse.runBuildM (Reverse.buildRToBuildM (Reverse.word8 x)) === (1, BL.singleton x, ())
+  , QC.testProperty "buildMToBuildR" $
+      QC.forAll QC.arbitrary $ \x ->
+        Reverse.runBuildR (Reverse.buildMToBuildR (Reverse.buildRToBuildM (Reverse.word8 x)))
+          === (1, BL.singleton x)
+  , QC.testProperty "Applicative BuildM" $
+      QC.forAll QC.arbitrary $ \x ->
+      QC.forAll QC.arbitrary $ \y ->
+        let w8 = Reverse.buildRToBuildM . Reverse.word8
+            pureB = pure x
+            applyB = ((y -) <$ w8 y) <*> (x <$ w8 x)
+        in
+          Reverse.runBuildM pureB === (0, mempty, x) QC..&&.
+          Reverse.runBuildM applyB === (2, BL.pack [x, y], y - x)
+  , QC.testProperty "Monad BuildM" $
+      QC.forAll QC.arbitrary $ \x ->
+      QC.forAll QC.arbitrary $ \y ->
+        let w8 = Reverse.buildRToBuildM . Reverse.word8
+            bindB = (y <$ w8 y) >>= \z -> (z - x) <$ w8 x
+        in
+          Reverse.runBuildM bindB === (2, BL.pack [x, y], y - x)
+  , QC.testProperty "toBuildM . fromBuildM" $
+      QC.forAll QC.arbitrary $ \x ->
+        let builder :: Reverse.BuildM Word16
+            builder = Reverse.toBuildM . Reverse.fromBuildM $
+                        (x + 5) <$ Reverse.buildRToBuildM (Reverse.word16BE x)
+        in
+          Reverse.runBuildM builder ===
+            (2, BL.pack [fromIntegral (x `quot` 256), fromIntegral (x `rem` 256)], x + 5)
+  , QC.testProperty "readUsed" $
+      QC.forAll QC.arbitrary $ \x ->
+      QC.forAll QC.arbitrary $ \y ->
+        let w8 = Reverse.buildRToBuildM . Reverse.word8
+            builder = do
+              w8 y
+              u <- Reverse.readUsed
+              w8 x
+              v <- Reverse.readUsed
+              pure (u, v)
+        in
+          Reverse.runBuildM builder === (2, BL.pack [x, y], (1, 2))
+  , QC.testProperty "readUnused" $
+      QC.forAll QC.arbitrary $ \x ->
+      QC.forAll QC.arbitrary $ \y ->
+        let w8 = Reverse.buildRToBuildM . Reverse.word8
+            builder = do
+              w8 y
+              u <- Reverse.readUnused
+              w8 x
+              v <- Reverse.readUnused
+              pure (u, v)
+        in
+          Reverse.runBuildM builder
+            === (2, BL.pack [x, y], (Reverse.smallChunkSize - 1, Reverse.smallChunkSize - 2))
+  ]
 
 data StringOrInt64 = TString T.Text | TInt64 Int64
     deriving stock (Eq, Show)
