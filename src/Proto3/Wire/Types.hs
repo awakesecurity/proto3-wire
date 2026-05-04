@@ -1,10 +1,11 @@
 {-# LANGUAGE DeriveDataTypeable         #-}
 {-# LANGUAGE DeriveGeneric              #-}
 {-# LANGUAGE DeriveLift                 #-}
+{-# LANGUAGE DerivingStrategies         #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 {-
-  Copyright 2016 Awake Networks
+  Copyright 2016-2026 Awake Networks
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -44,7 +45,8 @@ import           Test.QuickCheck            ( Arbitrary(..), choose )
 -- left to other, higher-level libraries.
 newtype FieldNumber = FieldNumber
   { getFieldNumber :: Word64 }
-  deriving (Bounded, Data, Enum, Eq, Generic, Hashable, Lift, NFData, Num, Ord)
+  deriving stock (Data, Generic, Lift)
+  deriving newtype (Bounded, Enum, Eq, Hashable, NFData, Num, Ord)
 
 instance Show FieldNumber where
   show (FieldNumber n) = show n
@@ -64,4 +66,4 @@ data WireType
   | Fixed32
   | Fixed64
   | LengthDelimited
-  deriving (Bounded, Data, Enum, Eq, Generic, Lift, Ord, Show)
+  deriving stock (Bounded, Data, Enum, Eq, Generic, Lift, Ord, Show)

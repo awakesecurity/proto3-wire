@@ -25,6 +25,7 @@
 
 -- | Presents right-associative folds as 'Foldable' sequences.
 module Proto3.Wire.FoldR
+  {-# DEPRECATED "This module is no longer used by the rest of the proto3-wire package." #-}
   ( FoldR(..)
   , fromFoldR
   ) where

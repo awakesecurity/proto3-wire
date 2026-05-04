@@ -1,5 +1,5 @@
 {-
-  Copyright 2016 Awake Networks
+  Copyright 2016-2026 Awake Networks
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
@@ -38,6 +38,7 @@
 -- > 1 `strings` Just "some string" <>
 -- > 2 `strings` [ "foo", "bar", "baz" ]
 
+{-# LANGUAGE AllowAmbiguousTypes #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE DataKinds #-}
 {-# LANGUAGE DeriveFunctor #-}
@@ -94,9 +95,11 @@ module Proto3.Wire.Encode
     , shortByteString
       -- * Embedded Messages
     , embedded
+    , embeddedIfNonempty
       -- * Folds
     , repeatedMessageBuilder
       -- * Packed repeated fields
+    , PackedField(..)
     , packedVarints
     , packedVarintsV
     , packedInt32R
@@ -135,7 +138,7 @@ import           Data.Int                      ( Int32, Int64 )
 import qualified Data.Text.Lazy                as Text.Lazy
 import qualified Data.Text.Short               as Text.Short
 import           Data.Vector.Generic           ( Vector )
-import           Data.Word                     ( Word8, Word32, Word64 )
+import           Data.Word                     ( Word8, Word16, Word32, Word64 )
 import           GHC.TypeLits                  ( KnownNat, Nat, type (+) )
 import           Parameterized.Data.Semigroup  ( PNullary, PSemigroup(..),
                                                  (&<>) )
@@ -512,16 +515,7 @@ bytes !num = embedded num . MessageBuilder
 -- >>> 1 `bytesIfNonempty` (Proto3.Wire.Reverse.stringUtf8 "testing")
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\atesting"
 bytesIfNonempty :: FieldNumber -> RB.BuildR -> MessageBuilder
-bytesIfNonempty !num bb =
-    MessageBuilder (RB.withLengthOf prefix bb)
-  where
-    prefix len
-      | 0 < len = Prim.liftBoundedPrim $
-          unMessageBoundedPrim (fieldHeader num LengthDelimited) &<>
-          Prim.wordBase128LEVar (fromIntegral @Int @Word len)
-      | otherwise =
-          mempty
-    {-# INLINE prefix #-}
+bytesIfNonempty !num = embeddedIfNonempty num . MessageBuilder
 {-# INLINE bytesIfNonempty #-}
 
 -- | Encode a UTF-8 string.
@@ -602,12 +596,96 @@ packedVariableWidthFieldR f !num =
   etaMessageBuilder (embedded num . MessageBuilder . RB.repeatedBuildR . mapRepeated f)
 {-# INLINE packedVariableWidthFieldR #-}
 
+-- | Like 'packedVariableWidthFieldR' but uses omission for zero elements.
+packedVariableWidthFieldRIfNonempty ::
+  ToRepeated c a => (a -> RB.BuildR) -> FieldNumber -> c -> MessageBuilder
+packedVariableWidthFieldRIfNonempty f !num =
+  etaMessageBuilder (embeddedIfNonempty num . MessageBuilder . RB.repeatedBuildR . mapRepeated f)
+{-# INLINE packedVariableWidthFieldRIfNonempty #-}
+
 -- | Encodes a packed repeated field whose elements never vary in width.
 packedFixedWidthFieldR ::
   (ToRepeated c a, KnownNat w) => (a -> Prim.FixedPrim w) -> FieldNumber -> c -> MessageBuilder
 packedFixedWidthFieldR f !num =
   etaMessageBuilder (embedded num . MessageBuilder . RB.repeatedFixedPrimR . mapRepeated f)
 {-# INLINE packedFixedWidthFieldR #-}
+
+-- | Like 'packedFixedWidthFieldR' but uses omission for zero elements.
+packedFixedWidthFieldRIfNonempty ::
+  (ToRepeated c a, KnownNat w) => (a -> Prim.FixedPrim w) -> FieldNumber -> c -> MessageBuilder
+packedFixedWidthFieldRIfNonempty f !num =
+  etaMessageBuilder (embeddedIfNonempty num . MessageBuilder . RB.repeatedFixedPrimR . mapRepeated f)
+{-# INLINE packedFixedWidthFieldRIfNonempty #-}
+
+-- | Chooses an appropriate encoder for the specified packed repeated field and sequence type.
+class ToRepeated c e =>
+      PackedField wt c e
+  where
+    -- | Normally emits a packed repeated field.  But if there is exactly
+    -- one element in the sequence, then this method uses unpacked format
+    -- because it is slightly shorter.  And if the sequence is empty then
+    -- this method omits the encoding entirely.
+    --
+    -- The caller must specify the wire type and must also perform
+    -- any required integral conversions such as zig-zag encoding
+    -- (perhaps by using 'mapRepeated'.)
+    packedField :: FieldNumber -> c -> MessageBuilder
+
+instance ToRepeated c Word64 =>
+         PackedField 'Varint c Word64
+  where
+    packedField = packedVariableWidthFieldRIfNonempty RB.word64Base128LEVar
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Word32 =>
+         PackedField 'Varint c Word32
+  where
+    packedField = packedVariableWidthFieldRIfNonempty RB.word32Base128LEVar
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Word16 =>
+         PackedField 'Varint c Word16
+  where
+    packedField = packedVariableWidthFieldRIfNonempty (RB.word32Base128LEVar . fromIntegral)
+      -- In future we might add a more specialized, more compact function named @word16Base128LEVar@.
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Word8 =>
+         PackedField 'Varint c Word8
+  where
+    packedField = packedVariableWidthFieldRIfNonempty (RB.word32Base128LEVar . fromIntegral)
+      -- In future we might add a more specialized, more compact function named @word8Base128LEVar@.
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Bool =>
+         PackedField 'Varint c Bool
+  where
+    packedField = packedFixedWidthFieldRIfNonempty (Prim.word8 . fromIntegral . fromEnum)
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Word32 =>
+         PackedField 'Fixed32 c Word32
+  where
+    packedField = packedFixedWidthFieldRIfNonempty Prim.word32LE
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Float =>
+         PackedField 'Fixed32 c Float
+  where
+    packedField = packedFixedWidthFieldRIfNonempty Prim.floatLE
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Word64 =>
+         PackedField 'Fixed64 c Word64
+  where
+    packedField = packedFixedWidthFieldRIfNonempty Prim.word64LE
+    {-# INLINE packedField #-}
+
+instance ToRepeated c Double =>
+         PackedField 'Fixed64 c Double
+  where
+    packedField = packedFixedWidthFieldRIfNonempty Prim.doubleLE
+    {-# INLINE packedField #-}
 
 -- | Encode varints in the space-efficient packed format.
 -- But consider 'packedVarintsV' or 'packedVarintsR', either of which may be faster.
@@ -624,6 +702,8 @@ packedVarints !num = etaMessageBuilder (embedded num . payload)
 --
 -- Generalizes 'packedVarintsV', provided that any new instance
 -- of 'Vector' is given a corresponding instance of 'ToRepeated'.
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedVarints64R :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
 packedVarints64R = packedVariableWidthFieldR RB.word64Base128LEVar
 {-# INLINE packedVarints64R #-}
@@ -631,6 +711,8 @@ packedVarints64R = packedVariableWidthFieldR RB.word64Base128LEVar
 -- | Like 'packedVarints64R' but supports only 32-bit inputs,
 -- which reduces on executable size in situations where we do
 -- not need to support larger values.
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedVarints32R :: ToRepeated c Word32 => FieldNumber -> c -> MessageBuilder
 packedVarints32R = packedVariableWidthFieldR RB.word32Base128LEVar
 {-# INLINE packedVarints32R #-}
@@ -659,6 +741,8 @@ packedVarintsV f !num = embedded num . payload
 -- To quote the specification: "If you use int32 or int64 as the type for
 -- a negative number, the resulting varint is always ten bytes long..."
 -- <https://developers.google.com/protocol-buffers/docs/encoding#varints>
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedInt32R :: ToRepeated c Int32 => FieldNumber -> c -> MessageBuilder
 packedInt32R !num xs =
   packedVarints64R num (mapRepeated (fromIntegral @Int32 @Word64) xs)
@@ -670,6 +754,8 @@ packedInt32R !num xs =
 --
 -- >>> packedInt64R @[_] 1 [42, -42]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\v*\214\255\255\255\255\255\255\255\255\SOH"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedInt64R :: ToRepeated c Int64 => FieldNumber -> c -> MessageBuilder
 packedInt64R !num xs =
   packedVarints64R num (mapRepeated (fromIntegral @Int64 @Word64) xs)
@@ -681,6 +767,8 @@ packedInt64R !num xs =
 --
 -- >>> packedUInt32R @[_] 1 [42, 43, maxBound]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\a*+\255\255\255\255\SI"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedUInt32R :: ToRepeated c Word32 => FieldNumber -> c -> MessageBuilder
 packedUInt32R = packedVarints32R
 {-# INLINE packedUInt32R #-}
@@ -691,6 +779,8 @@ packedUInt32R = packedVarints32R
 --
 -- >>> packedUInt64R @[_] 1 [42, 43, maxBound]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f*+\255\255\255\255\255\255\255\255\255\SOH"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedUInt64R :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
 packedUInt64R = packedVarints64R
 {-# INLINE packedUInt64R #-}
@@ -701,6 +791,8 @@ packedUInt64R = packedVarints64R
 --
 -- >>> packedSInt32R @[_] 1 [-42, maxBound, minBound]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\vS\254\255\255\255\SI\255\255\255\255\SI"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedSInt32R :: ToRepeated c Int32 => FieldNumber -> c -> MessageBuilder
 packedSInt32R !num xs =
   packedVarints32R num (mapRepeated (fromIntegral @Int32 @Word32 . zigZagEncode) xs)
@@ -712,6 +804,8 @@ packedSInt32R !num xs =
 --
 -- >>> packedSInt64R @[_] 1 [-42, maxBound, minBound]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\NAKS\254\255\255\255\255\255\255\255\255\SOH\255\255\255\255\255\255\255\255\255\SOH"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedSInt64R :: ToRepeated c Int64 => FieldNumber -> c -> MessageBuilder
 packedSInt64R !num xs =
   packedVarints64R num (mapRepeated (fromIntegral @Int64 @Word64 . zigZagEncode) xs)
@@ -726,6 +820,8 @@ packedSInt64R !num xs =
 --
 -- >>> packedBoolsR @[_] 1 [True, False]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\STX\SOH\NUL"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedBoolsR :: ToRepeated c Bool => FieldNumber -> c -> MessageBuilder
 packedBoolsR = packedFixedWidthFieldR (Prim.word8 . fromIntegral . fromEnum)
 {-# INLINE packedBoolsR #-}
@@ -761,6 +857,8 @@ packedFixed32 !num = etaMessageBuilder (embedded num . payload)
 --
 -- >>> packedFixed32R @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\STX\NUL\NUL\NUL\ETX\NUL\NUL\NUL"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedFixed32R :: ToRepeated c Word32 => FieldNumber -> c -> MessageBuilder
 packedFixed32R = packedFixedWidthFieldR Prim.word32LE
 {-# INLINE packedFixed32R #-}
@@ -795,6 +893,8 @@ packedFixed64 !num = etaMessageBuilder (embedded num . payload)
 --
 -- >>> packedFixed64R @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\STX\NUL\NUL\NUL\NUL\NUL\NUL\NUL\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedFixed64R :: ToRepeated c Word64 => FieldNumber -> c -> MessageBuilder
 packedFixed64R = packedFixedWidthFieldR Prim.word64LE
 {-# INLINE packedFixed64R #-}
@@ -818,6 +918,8 @@ packedFixed64V f !num = etaMessageBuilder (embedded num . payload)
 --
 -- >>> packedSFixed32R @[_] 1 [1, -2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\SOH\NUL\NUL\NUL\254\255\255\255\ETX\NUL\NUL\NUL"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedSFixed32R :: ToRepeated c Int32 => FieldNumber -> c -> MessageBuilder
 packedSFixed32R = packedFixedWidthFieldR Prim.int32LE
 {-# INLINE packedSFixed32R #-}
@@ -828,6 +930,8 @@ packedSFixed32R = packedFixedWidthFieldR Prim.int32LE
 --
 -- >>> packedSFixed64R @[_] 1 [1, -2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\SOH\NUL\NUL\NUL\NUL\NUL\NUL\NUL\254\255\255\255\255\255\255\255\ETX\NUL\NUL\NUL\NUL\NUL\NUL\NUL"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedSFixed64R :: ToRepeated c Int64 => FieldNumber -> c -> MessageBuilder
 packedSFixed64R = packedFixedWidthFieldR Prim.int64LE
 {-# INLINE packedSFixed64R #-}
@@ -850,6 +954,8 @@ packedFloats !num = etaMessageBuilder (embedded num . payload)
 --
 -- >>> packedFloatsR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\f\NUL\NUL\128?\NUL\NUL\NUL@\NUL\NUL@@"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedFloatsR :: ToRepeated c Float => FieldNumber -> c -> MessageBuilder
 packedFloatsR = packedFixedWidthFieldR Prim.floatLE
 {-# INLINE packedFloatsR #-}
@@ -885,6 +991,8 @@ packedDoubles !num = etaMessageBuilder (embedded num . payload)
 --
 -- >>> packedDoublesR @[_] 1 [1, 2, 3]
 -- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\CAN\NUL\NUL\NUL\NUL\NUL\NUL\240?\NUL\NUL\NUL\NUL\NUL\NUL\NUL@\NUL\NUL\NUL\NUL\NUL\NUL\b@"
+--
+-- But use 'packedField' to omit the field when there are zero elements.
 packedDoublesR :: ToRepeated c Double => FieldNumber -> c -> MessageBuilder
 packedDoublesR = packedFixedWidthFieldR Prim.doubleLE
 {-# INLINE packedDoublesR #-}
@@ -922,3 +1030,26 @@ embedded = \(!num) (MessageBuilder bb) ->
       Prim.wordBase128LEVar (fromIntegral @Int @Word len)
     {-# INLINE prefix #-}
 {-# INLINE embedded #-}
+
+-- | Like 'embedded' but omits the field if it would be empty, which
+-- is useful when the field is not @optional@ and is not part of
+-- a @oneof@, and therefore may be omitted entirely when empty.
+--
+-- For example:
+--
+-- >>> 1 `embeddedIfNonempty` mempty
+-- Proto3.Wire.Encode.unsafeFromLazyByteString ""
+-- >>> 1 `embeddedIfNonempty` (1 `string` "this message" <> 2 `string` " is embedded")
+-- Proto3.Wire.Encode.unsafeFromLazyByteString "\n\FS\n\fthis message\DC2\f is embedded"
+embeddedIfNonempty :: FieldNumber -> MessageBuilder -> MessageBuilder
+embeddedIfNonempty = \(!num) (MessageBuilder bb) ->
+    MessageBuilder (RB.withLengthOf (prefix num) bb)
+  where
+    prefix !num len
+      | 0 < len = Prim.liftBoundedPrim $
+          unMessageBoundedPrim (fieldHeader num LengthDelimited) &<>
+          Prim.wordBase128LEVar (fromIntegral @Int @Word len)
+      | otherwise =
+          mempty
+    {-# INLINE prefix #-}
+{-# INLINE embeddedIfNonempty #-}
