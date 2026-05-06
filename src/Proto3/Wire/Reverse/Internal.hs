@@ -133,7 +133,7 @@ newtype BuildM a
   -- then the compiler may allocate a function object on the heap.  That
   -- is almost never desirable, because a 'B.ByteString' holding output
   -- of a builder tends to be a better way of memoizing an octet sequence.
-  -- Use the pattern synonym @BuildR@ instead.
+  -- Use the pattern synonym @BuildM@ instead.
   = MemoBuildM (Addr# -> Int# -> State# RealWorld -> (# a, Addr#, Int#, State# RealWorld #))
       -- It seems we cannot preserve register allocation between the arguments
       -- and the returned components, even though we place the monadic return
