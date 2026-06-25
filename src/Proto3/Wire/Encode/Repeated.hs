@@ -514,7 +514,7 @@ instance ToRepeated (Reverse Data.IntSet.IntSet) Data.IntSet.Key
 
     foldMapRepeatedSource =
 #if MIN_VERSION_containers(0,8,0)
-      \f (Reverse xs) -> getDual (Data.IntSet.foldMap (\x -> Dual (f x)) xs
+      \f (Reverse xs) -> getDual (Data.IntSet.foldMap (\x -> Dual (f x)) xs)
 #else
       \f (Reverse xs) -> Data.IntSet.foldr (\x a -> a <> f x) mempty xs
 #endif
