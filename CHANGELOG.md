@@ -1,3 +1,7 @@
+1.5.1
+  - Support GHC 9.14
+  - Support doctest 0.25
+
 1.5.0
   - As a breaking change, modify `Repeated` and `ToRepeated` to use `foldMap`-style
     folds and thereby avoid allocation of `BuildR` functions on the heap.  Use
